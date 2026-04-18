@@ -1,0 +1,2637 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="管溝丈量系統">
+<link rel="apple-touch-icon" sizes="180x180" href="icons/wrench-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/wrench-192.png">
+<link rel="manifest" href="manifest.json">
+<title>管溝丈量系統</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0d1117;--surface:#161b22;--surface2:#21262d;--border:#30363d;
+  --accent:#f0a500;--text:#e6edf3;--text2:#8b949e;
+  --green:#3fb950;--red:#f85149;--blue:#58a6ff;--purple:#bc8cff;
+  --orange:#f0a500;
+  --radius:10px;--font:'Noto Sans TC',sans-serif;--mono:'JetBrains Mono',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;overflow-x:hidden}
+
+/* HEADER */
+.hdr{background:var(--surface);border-bottom:1px solid var(--border);padding:13px 15px;
+  display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.hdr-l{display:flex;align-items:center;gap:9px}
+.hdr-ico{width:34px;height:34px;background:var(--accent);border-radius:8px;display:grid;place-items:center;font-size:17px}
+.hdr-t{font-size:15px;font-weight:700}
+.hdr-s{font-size:11px;color:var(--text2)}
+.hdr-btns{display:flex;gap:7px}
+.hbtn{background:var(--surface2);border:1px solid var(--border);color:var(--text);
+  padding:7px 11px;border-radius:7px;font-size:12px;font-family:var(--font);cursor:pointer;
+  display:flex;align-items:center;gap:4px;white-space:nowrap}
+.hbtn.acc{background:var(--accent);color:#000;border-color:var(--accent);font-weight:700}
+.hbtn.imp{background:var(--blue);color:#000;border-color:var(--blue);font-weight:700}
+.hbtn:active{opacity:.6}
+
+.page{display:none}.page.active{display:block}
+
+/* SEARCH */
+.srch-wrap{padding:11px 15px;background:var(--surface);border-bottom:1px solid var(--border);position:relative}
+.srch-ico{position:absolute;left:26px;top:50%;transform:translateY(-50%);color:var(--text2);pointer-events:none;line-height:1;font-size:14px;z-index:1}
+.srch-inp{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;
+  padding:9px 13px 9px 42px;color:var(--text);font-size:14px;font-family:var(--font);outline:none}
+
+/* STATS */
+.stats{display:flex;gap:7px;padding:9px 15px;overflow-x:auto;scrollbar-width:none;background:var(--bg)}
+.chip{background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:4px 11px;
+  font-size:12px;white-space:nowrap;display:flex;align-items:center;gap:4px}
+.chip b{color:var(--accent);font-family:var(--mono)}
+.chip.filter{cursor:pointer;user-select:none;color:var(--text)}
+.chip.filter b{color:var(--accent)}
+.chip.filter.active{background:var(--accent);border-color:var(--accent);color:#000}
+.chip.filter.active b{color:#000}
+
+/* RECORD LIST */
+.rlist{padding:8px 15px 100px}
+.rcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:13px;margin-bottom:9px;cursor:pointer;position:relative;overflow:hidden;transition:transform .1s}
+.rcard::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent)}
+.rcard.pending::before{background:var(--blue)}
+.rcard:active{transform:scale(.99)}
+.rc-hd{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.rc-t{font-size:15px;font-weight:700;flex:1;min-width:0}
+.rc-no{font-size:12px;color:var(--accent);font-family:var(--mono);margin-top:2px}
+.rc-addr{font-size:12px;color:var(--text2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:4px}
+.addr-map-btn{background:none;border:none;color:var(--blue);font-size:14px;line-height:1;cursor:pointer;padding:0;margin:0;flex-shrink:0}
+.addr-map-btn:active{opacity:.6}
+.rc-dt{font-size:11px;color:var(--text2);flex-shrink:0}
+.dims{display:flex;gap:5px;margin-top:9px;flex-wrap:wrap}
+.dtag{background:var(--surface2);border:1px solid var(--border);border-radius:5px;
+  padding:3px 7px;font-size:11px;font-family:var(--mono);color:var(--blue)}
+.dtag.g{color:var(--green)}.dtag.p{color:var(--purple)}
+.dtag.pending{color:var(--text2);font-style:italic}
+.rc-ft{display:flex;justify-content:space-between;align-items:center;margin-top:9px}
+.rc-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.rc-btn{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:8px;font-size:12px;font-weight:700;font-family:var(--font);cursor:pointer}
+.rc-btn.map{background:rgba(88,166,255,.16);border-color:rgba(88,166,255,.35);color:var(--blue)}
+.pbadge{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text2)}
+.status-badge{font-size:11px;padding:2px 8px;border-radius:10px;font-weight:700}
+.status-badge.done{background:rgba(63,185,80,.15);color:var(--green);border:1px solid rgba(63,185,80,.3)}
+.status-badge.pend{background:rgba(88,166,255,.15);color:var(--blue);border:1px solid rgba(88,166,255,.3)}
+.status-badge.warn{background:rgba(240,165,0,.18);color:var(--accent);border:1px solid rgba(240,165,0,.35)}
+.status-badge.err{background:rgba(248,81,73,.15);color:var(--red);border:1px solid rgba(248,81,73,.3)}
+.status-badge.neutral{background:rgba(139,148,158,.16);color:var(--text2);border:1px solid rgba(139,148,158,.3)}
+.empty{text-align:center;padding:60px 20px;color:var(--text2)}
+.empty-i{font-size:46px;margin-bottom:12px;opacity:.5}
+
+.fab{position:fixed;bottom:22px;right:18px;background:var(--accent);color:#000;
+  width:56px;height:56px;border-radius:50%;border:none;font-size:27px;cursor:pointer;
+  box-shadow:0 4px 20px rgba(240,165,0,.4);display:grid;place-items:center;z-index:50}
+.fab:active{transform:scale(.91)}
+.to-top{opacity:.72;position:fixed;right:18px;bottom:90px;width:46px;height:46px;border:none;border-radius:50%;
+  background:var(--surface2);color:var(--text);border:1px solid var(--border);box-shadow:0 4px 16px rgba(0,0,0,.28);
+  display:none;place-items:center;font-size:20px;cursor:pointer;z-index:60}
+.to-top.show{display:grid}
+.to-top:active{transform:scale(.94)}
+
+.home-tabs{display:flex;gap:0;padding:7px 15px 0;background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:61px;z-index:99}
+.home-tab{flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text2);
+  padding:7px 8px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer}
+.home-tab:first-child{border-radius:9px 0 0 9px}
+.home-tab:last-child{border-radius:0 9px 9px 0}
+.home-tab.active{background:var(--accent);border-color:var(--accent);color:#000}
+.home-view{display:none}
+.home-view.active{display:block}
+.map-wrap{padding:14px 15px 100px}
+.map-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.map-note{padding:12px 14px;border-bottom:1px solid var(--border)}
+.map-title{font-size:14px;font-weight:700}
+.map-sub{font-size:12px;color:var(--text2);line-height:1.7;margin-top:4px}
+#map-canvas{width:100%;height:calc(100vh - 245px);min-height:420px;background:var(--surface2)}
+.map-inline-empty{padding:28px 20px;text-align:center;color:var(--text2);font-size:13px;line-height:1.8}
+.map-inline-empty b{color:var(--accent)}
+.map-tools{padding:0 14px 12px;display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.map-info{min-width:250px;line-height:1.7;font-size:13px;color:#111}
+.map-info-title{font-weight:700;font-size:15px;margin-bottom:6px;color:#111}
+.map-info-row{margin:2px 0;color:#111}
+.map-info-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.map-info-btn{display:inline-flex;align-items:center;justify-content:center;padding:8px 10px;border-radius:8px;
+  text-decoration:none;font-size:12px;font-weight:700;color:#111;background:#e9eef6;border:1px solid #c6d1e0;cursor:pointer}
+.map-info-btn.route{background:#ffe8b3;border-color:#f0c24f}
+.map-info-btn.fill{background:#d7f0dc;border-color:#8ac79a}
+
+/* PAGE HEADER */
+.phdr{background:var(--surface);border-bottom:1px solid var(--border);padding:13px 15px;
+  display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:100}
+.back{background:none;border:none;color:var(--text2);font-size:22px;cursor:pointer;padding:2px 8px 2px 0}
+.back:active{opacity:.6}
+.ptitle{font-size:16px;font-weight:700;flex:1}
+
+/* FORM */
+.fbody{padding:15px;padding-bottom:100px}
+.slbl{font-size:11px;font-weight:700;letter-spacing:1px;color:var(--accent);text-transform:uppercase;
+  margin:18px 0 9px;display:flex;align-items:center;gap:5px}
+.slbl:first-child{margin-top:0}
+.fgrp{display:flex;flex-direction:column;gap:9px}
+.fld{display:flex;flex-direction:column;gap:4px}
+.fld label{font-size:12px;color:var(--text2)}
+#page-add .fld input,#page-add .fld textarea{
+  background:var(--surface);border:2px solid var(--border);border-radius:8px;
+  color:var(--text);font-size:15px;font-family:var(--font);padding:10px 13px;outline:none;
+  transition:border-color .15s;width:100%}
+.fld input,.fld textarea{
+  background:var(--surface);border:1px solid var(--border);border-radius:8px;
+  color:var(--text);font-size:15px;font-family:var(--font);padding:10px 13px;outline:none;
+  transition:border-color .15s;width:100%}
+.fld input:focus,.fld textarea:focus{border-color:var(--accent)}
+.fld input[type=number]{font-family:var(--mono);font-size:16px}
+.fld textarea{resize:vertical;min-height:70px}
+.r2{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.r3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px}
+
+.ccard{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);
+  padding:13px;display:grid;gap:9px;margin-top:9px}
+.ccard.c3{grid-template-columns:1fr 1fr 1fr}
+.ccard.c2{grid-template-columns:1fr 1fr}
+.citem label{font-size:11px;color:var(--text2);display:block;margin-bottom:3px}
+.cval{font-family:var(--mono);font-size:19px;font-weight:600;color:var(--green)}
+.cval.b{color:var(--blue)}.cval.p{color:var(--purple)}
+
+.gcard{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);
+  padding:11px 13px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.ginfo{font-size:12px;color:var(--text2)}
+.gcoords{font-size:12px;font-family:var(--mono);color:var(--blue);margin-top:2px;word-break:break-all}
+
+.btn{border:none;border-radius:8px;padding:10px 16px;font-family:var(--font);font-size:14px;
+  font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  gap:6px;transition:opacity .15s,transform .1s;white-space:nowrap}
+.btn:active{transform:scale(.96);opacity:.8}
+.btn-p{background:var(--accent);color:#000}
+.btn-s{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+.btn-d{background:var(--red);color:#fff}
+.btn-b{background:var(--blue);color:#000}
+.btn-g{background:var(--green);color:#000}
+.btn-full{width:100%}
+.btn-sm{padding:7px 12px;font-size:12px}
+.btn-save-main,.btn-edit-main{padding:15px 24px;font-size:14px;min-height:64px}
+.btn-ref{background:#bc8cff;color:#111}
+.btn-ref:hover{opacity:.92}
+
+.pactions{display:flex;gap:7px;margin-bottom:10px;flex-wrap:wrap}
+.pgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.pthumb{position:relative;aspect-ratio:1;border-radius:8px;overflow:hidden;
+  background:var(--surface2);border:1px solid var(--border)}
+.pthumb img{width:100%;height:100%;object-fit:cover}
+.pdel{position:absolute;top:3px;right:3px;background:rgba(0,0,0,.75);border:none;
+  color:#fff;width:22px;height:22px;border-radius:50%;font-size:13px;cursor:pointer;display:grid;place-items:center}
+
+.sbar{position:fixed;bottom:0;left:0;right:0;background:var(--surface);
+  border-top:1px solid var(--border);padding:11px 15px;z-index:100}
+
+/* DETAIL */
+.dhero{background:linear-gradient(135deg,var(--surface),var(--surface2));
+  border-bottom:1px solid var(--border);padding:18px 15px}
+.dproj{font-size:19px;font-weight:700}
+.dno{font-size:13px;color:var(--accent);font-family:var(--mono);margin-top:3px}
+.daddr{font-size:13px;color:var(--text2);margin-top:4px}
+.ddate{font-size:12px;color:var(--text2);margin-top:5px}
+.dbody{padding:15px;padding-bottom:30px}
+.igrid{display:grid;gap:1px;background:var(--border);border-radius:0 0 var(--radius) var(--radius);overflow:hidden;margin-bottom:14px}
+.igrid.g3{grid-template-columns:1fr 1fr 1fr}
+.igrid.g2{grid-template-columns:1fr 1fr}
+.icell{background:var(--surface);padding:13px;text-align:center}
+.ilbl{font-size:11px;color:var(--text2)}
+.ival{font-size:17px;font-weight:700;font-family:var(--mono);margin-top:3px}
+.ival.g{color:var(--green)}.ival.b{color:var(--blue)}.ival.a{color:var(--accent)}.ival.p{color:var(--purple)}
+.ecard{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:14px}
+.echdr{padding:12px 15px;border-bottom:1px solid var(--border);font-weight:700;display:flex;align-items:center;gap:7px;font-size:14px}
+.ecbody{padding:13px 15px}
+.shdr{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius) var(--radius) 0 0;
+  padding:10px 15px;font-weight:700;font-size:13px;display:flex;align-items:center;gap:6px;border-bottom:none}
+
+/* EXPORT */
+.xbody{padding:15px;padding-bottom:40px}
+.ptw{overflow-x:auto;border-radius:8px;border:1px solid var(--border)}
+.ptbl{width:100%;border-collapse:collapse;font-size:12px;min-width:600px}
+.ptbl th{background:var(--surface2);padding:7px 9px;text-align:left;
+  border-bottom:1px solid var(--border);color:var(--text2);white-space:nowrap;font-weight:600}
+.ptbl td{padding:7px 9px;border-bottom:1px solid var(--border);vertical-align:middle}
+.ptbl tr:last-child td{border-bottom:none}
+.ptbl tr:nth-child(even) td{background:rgba(255,255,255,.02)}
+.mono{font-family:var(--mono)}
+
+/* IMPORT PAGE */
+.ibody{padding:15px;padding-bottom:40px}
+.drop-zone{border:2px dashed var(--border);border-radius:var(--radius);padding:32px 20px;
+  text-align:center;cursor:pointer;transition:border-color .2s,background .2s;background:var(--surface)}
+.drop-zone:hover,.drop-zone.drag{border-color:var(--blue);background:rgba(88,166,255,.06)}
+.drop-icon{font-size:40px;margin-bottom:10px}
+.drop-txt{font-size:14px;color:var(--text2);line-height:1.7}
+.drop-hint{font-size:12px;color:var(--text2);margin-top:6px;opacity:.7}
+.import-preview{margin-top:16px}
+.imp-table-wrap{overflow-x:auto;border-radius:8px;border:1px solid var(--border);margin-bottom:14px}
+.imp-table{width:100%;border-collapse:collapse;font-size:13px;min-width:400px}
+.imp-table th{background:var(--surface2);padding:8px 10px;text-align:left;
+  border-bottom:1px solid var(--border);color:var(--text2);font-weight:600;white-space:nowrap}
+.imp-table td{padding:8px 10px;border-bottom:1px solid var(--border)}
+.imp-table tr:last-child td{border-bottom:none}
+.imp-table tr:nth-child(even) td{background:rgba(255,255,255,.02)}
+.imp-row-ok td{color:var(--text)}
+.imp-row-skip td{color:var(--text2);opacity:.5}
+.col-map{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:14px;margin-bottom:14px}
+.col-map-title{font-size:12px;font-weight:700;color:var(--accent);margin-bottom:10px;letter-spacing:.5px}
+.col-map-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.cm-fld{display:flex;flex-direction:column;gap:3px}
+.cm-fld label{font-size:11px;color:var(--text2)}
+.cm-fld select{background:var(--surface2);border:1px solid var(--border);border-radius:7px;
+  color:var(--text);font-size:13px;font-family:var(--font);padding:6px 10px;outline:none}
+.info-box{background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.25);border-radius:8px;
+  padding:10px 13px;font-size:12px;color:var(--text2);line-height:1.7;margin-bottom:14px}
+.info-box b{color:var(--blue)}
+
+/* PHOTO OVERLAY */
+.ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.93);z-index:999;
+  flex-direction:column;align-items:center;justify-content:center}
+.ov.open{display:flex}
+.ov-img{max-width:100%;max-height:80vh;object-fit:contain;border-radius:6px}
+.ov-close{position:absolute;top:14px;right:14px;background:rgba(255,255,255,.15);
+  border:none;color:#fff;width:38px;height:38px;border-radius:50%;font-size:18px;cursor:pointer;display:grid;place-items:center}
+
+/* CONFIRM MODAL */
+.mover{display:none;position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:998;align-items:center;justify-content:center}
+.mover.open{display:flex}
+.mbox{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px 18px;max-width:320px;width:90%}
+.mbox-t{font-size:16px;font-weight:700;margin-bottom:7px}
+.mbox-b{font-size:13px;color:var(--text2);margin-bottom:18px;line-height:1.6}
+.macts{display:flex;gap:7px}
+.macts .btn{flex:1}
+
+/* TOAST */
+.toast{position:fixed;bottom:88px;left:50%;transform:translateX(-50%) translateY(14px);
+  background:var(--surface2);border:1px solid var(--border);color:var(--text);
+  padding:9px 18px;border-radius:18px;font-size:13px;opacity:0;transition:all .22s;
+  z-index:9999;white-space:nowrap;pointer-events:none;max-width:90vw;text-align:center}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+
+<!-- ══════ LIST PAGE ══════ -->
+<div id="page-list" class="page active">
+  <div class="hdr">
+    <div class="hdr-l">
+      <div class="hdr-ico">🔧</div>
+      <div><div class="hdr-t">管溝丈量系統</div><div class="hdr-s" id="sync-caption">監造現場用・尚未設定同步</div></div>
+    </div>
+    <div class="hdr-btns">
+      <button class="hbtn" onclick="syncNow(true)">☁️ 同步</button>
+      <button class="hbtn" onclick="gotoPage('page-sync')">⚙️ 設定</button>
+    </div>
+  </div>
+
+  <div class="home-tabs">
+    <button id="home-tab-list" class="home-tab active" onclick="switchHomeTab('list')">📋 丈量清單</button>
+    <button id="home-tab-map" class="home-tab" onclick="switchHomeTab('map')">🗺️ 丈量地圖</button>
+  </div>
+
+  <div id="home-view-list" class="home-view active">
+    <div class="srch-wrap">
+      <span class="srch-ico" aria-hidden="true">🔍</span>
+      <input id="srch" class="srch-inp" type="text" placeholder="搜尋行動代號/用戶名/水號/地址" oninput="renderList()">
+    </div>
+    <div class="stats" id="stats"></div>
+    <div class="rlist" id="rlist"></div>
+  </div>
+
+  <div id="home-view-map" class="home-view">
+    <div class="map-wrap">
+      <div class="map-card">
+        <div class="map-note">
+          <div class="map-title">📍 丈量地圖</div>
+          <div class="map-sub" id="map-summary">讀取地圖資料中…</div>
+        </div>
+        <div class="srch-wrap">
+          <span class="srch-ico" aria-hidden="true">🔍</span>
+          <input id="map-srch" class="srch-inp" type="text" placeholder="搜尋行動代號/用戶名/水號/地址" oninput="initMeasureMap()">
+        </div>
+        <div class="map-tools">
+          <button id="map-locate-btn" class="btn btn-b btn-sm" onclick="locateMeOnMap()">📍 定位我</button>
+        </div>
+        <div id="map-canvas"></div>
+        <div id="map-empty" class="map-inline-empty" style="display:none">
+          目前沒有可定位的丈量資料。<br>
+          請先同步含 GPS 座標的資料。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <button id="home-fab" class="fab" onclick="openAdd()">＋</button>
+  <button id="to-top-btn" class="to-top" onclick="scrollToTopSmooth()" aria-label="回到頂端">🔝</button>
+</div>
+
+<!-- ══════ ADD/EDIT PAGE ══════ -->
+<div id="page-add" class="page">
+  <div class="phdr">
+    <button class="back" onclick="returnToListPage()">‹</button>
+    <div class="ptitle" id="add-title">新增丈量紀錄</div>
+    <button id="add-ref-btn" class="btn btn-ref btn-sm" style="display:none" onclick="applyMeasureCacheToForm()">📑參照前案</button>
+    <button id="add-del-btn" class="btn btn-d btn-sm" style="display:none" onclick="askDeleteFromAdd()">🗑 刪除</button>
+  </div>
+  <div class="fbody">
+    <div class="slbl">📋 基本資訊</div>
+    <div class="fgrp">
+      <div class="fld"><label>用戶名 *</label>
+        <input id="f-project" type="text" placeholder="例：王○○"></div>
+      <div class="r2">
+        <div class="fld"><label>水號 *</label>
+          <input id="f-trench" type="text" placeholder="例：D1-○○-○○○○-○○"></div>
+        <div class="fld"><label>丈量日期</label>
+          <input id="f-date" type="date"></div>
+      </div>
+      <div class="fld"><label>地址</label>
+        <input id="f-addr" type="text" placeholder="例：屏東縣屏東市○○路○○號"></div>
+    </div>
+
+    <div class="slbl">🟤非管溝丈量</div>
+    <div class="r3">
+      <div class="fld"><label>宅地長度 (m)</label>
+        <input id="f-lotlen" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00" oninput="this.value=sanitizeDecimalString(this.value)"></div>
+      <div class="fld"><label>水溝寬度 (m)</label>
+        <input id="f-ditchwid" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00" oninput="this.value=sanitizeDecimalString(this.value)"></div>
+      <div class="fld"><label>標線長度 (m)</label>
+        <input id="f-stripe" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00" oninput="this.value=sanitizeDecimalString(this.value)"></div>
+    </div>
+
+    <div class="slbl">🔵 管溝丈量 / 路幅丈量</div>
+    <div class="r2">
+      <div class="fld"><label>管溝長度 (m)</label>
+        <input id="f-len" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00" oninput="this.value=sanitizeDecimalString(this.value)"></div>
+      <div class="fld"><label>路幅長度 (m)</label>
+        <input id="f-road" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00" oninput="this.value=sanitizeDecimalString(this.value)"></div>
+    </div>
+
+    <div class="slbl">🟣 刨鋪丈量</div>
+    <div class="r2">
+      <div class="fld"><label>刨鋪長度 (m)</label>
+        <input id="f-plen" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00" oninput="this.value=sanitizeDecimalString(this.value)"></div>
+      <div class="fld"><label>刨鋪寬度 (m)</label>
+        <input id="f-pwid" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00" oninput="this.value=sanitizeDecimalString(this.value)"></div>
+    </div>
+
+    <div class="slbl">📍 定位資訊</div>
+    <div class="gcard">
+      <div><div class="ginfo">GPS 座標</div>
+        <div class="gcoords" id="gps-display">尚未取得</div></div>
+    </div>
+    <div style="font-size:11px;color:var(--text2);margin-top:9px;line-height:1.6">
+      此欄位顯示同步資料或既有紀錄的 GPS 座標。
+    </div>
+    <input type="hidden" id="f-lat"><input type="hidden" id="f-lng">
+
+    <div class="slbl">📸 現場照片</div>
+    <div class="pactions">
+      <button class="btn btn-s btn-sm" onclick="trigCam()">📷 相機拍照</button>
+      <button class="btn btn-s btn-sm" onclick="trigGal()">🖼 從相簿選取</button>
+    </div>
+    <input type="file" id="fc" accept="image/*" capture="environment" style="display:none" onchange="handlePics(this)">
+    <input type="file" id="fg" accept="image/*" multiple style="display:none" onchange="handlePics(this)">
+    <div class="pgrid" id="pgrid"></div>
+
+    <div class="slbl">📝 備註</div>
+    <div class="fld">
+      <textarea id="f-note" placeholder="施工情形、特殊狀況、設計值對照…"></textarea>
+    </div>
+    <input type="hidden" id="f-eid">
+  </div>
+  <div class="sbar">
+    <button class="btn btn-p btn-full btn-save-main" onclick="saveRecord()">💾 儲存丈量紀錄</button>
+  </div>
+</div>
+
+<!-- ══════ DETAIL PAGE ══════ -->
+<div id="page-detail" class="page">
+  <div class="phdr">
+    <button class="back" onclick="returnToListPage()">‹</button>
+    <div class="ptitle">紀錄詳情</div>
+    <button class="btn btn-d btn-sm" onclick="askDelete()">🗑 刪除</button>
+  </div>
+  <div class="dhero">
+    <div class="dproj" id="d-proj"></div>
+    <div class="dno" id="d-no"></div>
+    <div class="daddr" id="d-addr"></div>
+    <div class="ddate" id="d-date"></div>
+  </div>
+  <div class="dbody">
+    <div class="shdr">🟤非管溝丈量</div>
+    <div class="igrid g3">
+      <div class="icell"><div class="ilbl">宅地長度</div><div class="ival a" id="d-lotlen"></div><div style="font-size:10px;color:var(--text2)">m</div></div>
+      <div class="icell"><div class="ilbl">水溝寬度</div><div class="ival a" id="d-ditchwid"></div><div style="font-size:10px;color:var(--text2)">m</div></div>
+      <div class="icell"><div class="ilbl">標線長度</div><div class="ival a" id="d-stripe"></div><div style="font-size:10px;color:var(--text2)">m</div></div>
+    </div>
+    <div class="shdr" style="margin-top:14px">🔵 管溝丈量 / 路幅丈量</div>
+    <div class="igrid g2">
+      <div class="icell"><div class="ilbl">管溝長度</div><div class="ival b" id="d-len"></div><div style="font-size:10px;color:var(--text2)">m</div></div>
+      <div class="icell"><div class="ilbl">路幅長度</div><div class="ival a" id="d-road"></div><div style="font-size:10px;color:var(--text2)">m</div></div>
+    </div>
+    <div class="shdr" style="margin-top:14px">🟣 刨鋪丈量</div>
+    <div class="igrid g2">
+      <div class="icell"><div class="ilbl">刨鋪長度</div><div class="ival p" id="d-plen"></div><div style="font-size:10px;color:var(--text2)">m</div></div>
+      <div class="icell"><div class="ilbl">刨鋪寬度</div><div class="ival p" id="d-pwid"></div><div style="font-size:10px;color:var(--text2)">m</div></div>
+    </div>
+    <div class="ecard" style="margin-top:14px">
+      <div class="echdr">📍 定位 / 備註</div>
+      <div class="ecbody">
+        <div style="font-size:12px;color:var(--text2);margin-bottom:4px">GPS 座標</div>
+        <div id="d-gps" style="font-family:var(--mono);font-size:13px;color:var(--blue);margin-bottom:12px"></div>        <div style="font-size:12px;color:var(--text2);margin-bottom:4px">備註</div>
+        <div id="d-note" style="font-size:14px;line-height:1.7"></div>
+      </div>
+    </div>
+    <div style="display:flex;gap:7px;margin-bottom:16px">
+      <button class="btn btn-s btn-edit-main" onclick="editRecord()" style="flex:1">✏️ 編輯此紀錄</button>
+    </div>
+    <div class="slbl">📸 施工照片</div>
+    <div class="pgrid" id="d-photos"></div>
+    <div id="d-nopic" style="color:var(--text2);font-size:13px;display:none">（無照片）</div>
+  </div>
+</div>
+
+
+<!-- ══════ SYNC PAGE ══════ -->
+<div id="page-sync" class="page">
+  <div class="phdr">
+    <button class="back" onclick="gotoPage('page-list')">‹</button>
+    <div class="ptitle">同步設定</div>
+  </div>
+  <div class="xbody">
+    <div class="ecard">
+      <div class="echdr">☁️ Apps Script Web App</div>
+      <div class="ecbody">
+        <div class="fld">
+          <label>Web App URL</label>
+          <input id="cfg-api-url" type="text" placeholder="貼上你部署好的 Apps Script Web App 網址">
+        </div>
+        <div class="r2" style="margin-top:10px">
+          <div class="fld">
+            <label>同步方式</label>
+            <select id="cfg-sync-ms" disabled style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:15px;font-family:var(--font);padding:10px 13px;outline:none;opacity:.7">
+              <option value="manual">僅手動同步</option>
+            </select>
+          </div>
+          <div class="fld">
+            <label>最後同步</label>
+            <input id="cfg-last-sync" type="text" value="尚未同步" readonly>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+          <button class="btn btn-p btn-sm" onclick="saveSyncConfig()">💾 儲存設定</button>
+          <button class="btn btn-s btn-sm" onclick="testSyncConnection()">🧪 測試連線</button>
+          <button class="btn btn-b btn-sm" onclick="syncNow(true)">☁️ 立即同步</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="ecard">
+      <div class="echdr">📋 後端檢查結果</div>
+      <div class="ecbody">
+        <div id="cfg-test-result" style="font-size:13px;color:var(--text2);line-height:1.8">尚未測試。</div>
+      </div>
+    </div>
+
+    <div class="ecard">
+      <div class="echdr">📸 Google Drive 直傳設定</div>
+      <div class="ecbody">
+        <div class="fld">
+          <label>OAuth Client ID</label>
+          <input id="cfg-drive-client-id" type="text" placeholder="貼上 Google Cloud 建立的 Web application Client ID">
+        </div>
+        <div class="fld" style="margin-top:10px">
+          <label>Google Drive 資料夾 ID（可空白）</label>
+          <input id="cfg-drive-folder-id" type="text" placeholder="空白 = 上傳到我的雲端硬碟根目錄">
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+          <button class="btn btn-s btn-sm" onclick="testDriveConnection()">🧪 登入 / 測試 Drive</button>
+          <button class="btn btn-s btn-sm" onclick="clearDriveSession()">🔓 清除本頁登入</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="ecard">
+      <div class="echdr">📁 Drive 狀態</div>
+      <div class="ecbody">
+        <div id="cfg-drive-result" style="font-size:13px;color:var(--text2);line-height:1.8">尚未設定。</div>
+      </div>
+    </div>
+
+    <div class="ecard">
+      <div class="echdr">ℹ️ 使用提醒</div>
+      <div class="ecbody" style="font-size:12px;color:var(--text2);line-height:1.8">
+        1. 先把 Apps Script 後端部署成 <b>Web App</b>。<br>
+        2. 把 Web App 網址貼到上方後按 <b>💾 儲存設定</b>。<br>
+        3. Google Drive 直傳需另外建立 <b>Web application OAuth Client ID</b>，並把本站網址加入 <b>Authorized JavaScript origins</b>。<br>
+        4. 填好 OAuth Client ID 後，先按 <b>🧪 登入 / 測試 Drive</b> 完成 Google 授權。<br>
+        5. 按下 <b>💾 儲存丈量紀錄</b> 時，資料與照片只會先暫存在本機。<br>
+        6. 需由使用者手動按 <b>☁️ 同步</b>，才會同步丈量資料並把照片上傳到 Google Drive。<br>
+        7. 圖片會用 <b>photo_01、photo_02...</b> 形式覆蓋重存，避免重複照片。
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- PHOTO OVERLAY -->
+<div class="ov" id="pov" onclick="closePov()">
+  <button class="ov-close" onclick="closePov()">✕</button>
+  <img class="ov-img" id="pov-img" src="" alt="">
+</div>
+
+<!-- CONFIRM DELETE MODAL -->
+<div class="mover" id="cmod">
+  <div class="mbox">
+    <div class="mbox-t">⚠️ 刪除確認</div>
+    <div class="mbox-b">只會刪除本機中的此筆案件（丈量清單、丈量地圖）。後端與 Google Drive 不會被刪除，之後按同步也不會送出這筆本機刪除資訊。</div>
+    <div class="macts">
+      <button class="btn btn-s" onclick="closeModal()">取消</button>
+      <button class="btn btn-d" onclick="confirmDelete()">確認刪除</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+const DB='TrenchDB4',VER=1,ST='records';
+const MAPS_API_KEY='AIzaSyAA25Teu7QMzQF7LhbF1MqRsux4td_vBMo';
+const APP_CONFIG_KEY='TrenchSyncConfigV1';
+const MEASURE_CACHE_KEY='TrenchMeasureDraftCacheV1';
+const DEFAULT_SYNC_INTERVAL_MS=15000;
+const DRIVE_SCOPE='https://www.googleapis.com/auth/drive';
+
+let db;
+let editPhotos=[];
+let curDetailPhotos=[];
+let curDetailId=null,curDelId=null;
+let homeTab='list';
+let listStatusFilter='pending';
+let listPageScrollY=0;
+let restoreListScroll=false;
+let measureMap=null;
+let measureMapMarkers=[];
+let measureMapInfo=null;
+let measureMapUserMarker=null;
+let googleMapsPromise=null;
+let measureMapMarkerMap=new Map();
+let focusMapRecordId=null;
+let appConfig={apiBaseUrl:'',syncIntervalMs:DEFAULT_SYNC_INTERVAL_MS,driveClientId:'',driveFolderId:''};
+let syncTimer=null;
+let isSyncing=false;
+let lastSyncAt='';
+let lastRegistryInfo=null;
+let driveTokenClient=null;
+let driveAccessToken='';
+let driveTokenExpiresAt=0;
+let driveAuthPromise=null;
+let _tt;
+
+function openDB(){
+  return new Promise((res,rej)=>{
+    const r=indexedDB.open(DB,VER);
+    r.onupgradeneeded=e=>{
+      const d=e.target.result;
+      if(!d.objectStoreNames.contains(ST)) d.createObjectStore(ST,{keyPath:'id'});
+    };
+    r.onsuccess=e=>{db=e.target.result;res();};
+    r.onerror=()=>rej(r.error);
+  });
+}
+const txs=(m='readonly')=>db.transaction(ST,m).objectStore(ST);
+function getAllLocal(){
+  return new Promise((r,j)=>{
+    const q=txs().getAll();
+    q.onsuccess=()=>r(sortRecords((q.result||[]).map(x=>normalizeLocalRecord(x))));
+    q.onerror=()=>j(q.error);
+  });
+}
+function getRecLocal(id){
+  return new Promise((r,j)=>{
+    const q=txs().get(id);
+    q.onsuccess=()=>r(q.result?normalizeLocalRecord(q.result):null);
+    q.onerror=()=>j(q.error);
+  });
+}
+function putRecLocal(rec){
+  const normalized=normalizeLocalRecord(rec);
+  return new Promise((r,j)=>{
+    const q=txs('readwrite').put(normalized);
+    q.onsuccess=()=>r(normalized);
+    q.onerror=()=>j(q.error);
+  });
+}
+function deleteRecLocal(id){
+  return new Promise((r,j)=>{
+    const q=txs('readwrite').delete(id);
+    q.onsuccess=()=>r();
+    q.onerror=()=>j(q.error);
+  });
+}
+function clearLocal(){
+  return new Promise((r,j)=>{
+    const q=txs('readwrite').clear();
+    q.onsuccess=()=>r();
+    q.onerror=()=>j(q.error);
+  });
+}
+async function replaceLocalRecords(records){
+  await clearLocal();
+  for(const rec of records){
+    await putRecLocal(rec);
+  }
+}
+
+function loadAppConfig(){
+  try{
+    const raw=localStorage.getItem(APP_CONFIG_KEY);
+    if(raw){
+      const parsed=JSON.parse(raw);
+      appConfig={
+        apiBaseUrl:normalizeApiUrl(parsed.apiBaseUrl||''),
+        syncIntervalMs:Number(parsed.syncIntervalMs)||DEFAULT_SYNC_INTERVAL_MS,
+        driveClientId:String(parsed.driveClientId||'').trim(),
+        driveFolderId:normalizeDriveFolderId(parsed.driveFolderId||''),
+      };
+      return;
+    }
+  }catch(e){}
+  appConfig={apiBaseUrl:'',syncIntervalMs:DEFAULT_SYNC_INTERVAL_MS,driveClientId:'',driveFolderId:''};
+}
+function saveAppConfigToStorage(){
+  localStorage.setItem(APP_CONFIG_KEY,JSON.stringify(appConfig));
+}
+function normalizeApiUrl(url){
+  return String(url||'').trim().replace(/[#?].*$/,'').replace(/\/$/,'');
+}
+function normalizeDriveFolderId(id){
+  return String(id||'').trim();
+}
+function hasApiConfig(){
+  return !!normalizeApiUrl(appConfig.apiBaseUrl);
+}
+function hasDriveConfig(){
+  return !!String(appConfig.driveClientId||'').trim();
+}
+function getMeasureCache(){
+  try{
+    const raw=localStorage.getItem(MEASURE_CACHE_KEY);
+    if(!raw) return null;
+    const parsed=JSON.parse(raw);
+    if(!parsed || typeof parsed!=='object') return null;
+    return {
+      lotLenM:toNumber(parsed.lotLenM),
+      ditchWidM:toNumber(parsed.ditchWidM),
+      stripeLenM:toNumber(parsed.stripeLenM),
+      lengthM:toNumber(parsed.lengthM),
+      roadWidthLenM:toNumber(parsed.roadWidthLenM),
+      paveLenM:toNumber(parsed.paveLenM),
+      paveWidM:toNumber(parsed.paveWidM),
+      savedAt:String(parsed.savedAt||'').trim(),
+      sourceId:String(parsed.sourceId||'').trim(),
+      sourceProjectName:String(parsed.sourceProjectName||'').trim(),
+      sourceTrenchNo:String(parsed.sourceTrenchNo||'').trim(),
+    };
+  }catch(e){
+    return null;
+  }
+}
+function saveMeasureCacheFromRecord(rec){
+  const payload={
+    lotLenM:toNumber(rec.lotLenM),
+    ditchWidM:toNumber(rec.ditchWidM),
+    stripeLenM:toNumber(rec.stripeLenM),
+    lengthM:toNumber(rec.lengthM),
+    roadWidthLenM:toNumber(rec.roadWidthLenM),
+    paveLenM:toNumber(rec.paveLenM),
+    paveWidM:toNumber(rec.paveWidM),
+    savedAt:new Date().toISOString(),
+    sourceId:String(rec.id||'').trim(),
+    sourceProjectName:String(rec.projectName||'').trim(),
+    sourceTrenchNo:String(rec.trenchNo||'').trim(),
+  };
+  localStorage.setItem(MEASURE_CACHE_KEY, JSON.stringify(payload));
+  return payload;
+}
+function hasMeasureCache(){
+  return !!getMeasureCache();
+}
+function setMeasureInputValue(inputId, value){
+  document.getElementById(inputId).value=hasExplicitNumber(value)?numText(value):'';
+}
+function measureFieldPrefillValue(value, recordStatus=''){
+  if(!hasExplicitNumber(value)) return '';
+  if(String(recordStatus||'').trim()==='pending' && Number(value)===0) return '';
+  return numText(value);
+}
+function refreshMeasureCacheButton(){
+  const btn=document.getElementById('add-ref-btn');
+  if(!btn) return;
+  btn.style.display=hasMeasureCache()?'flex':'none';
+}
+function applyMeasureCacheToForm(){
+  const cache=getMeasureCache();
+  if(!cache){
+    refreshMeasureCacheButton();
+    toast('目前沒有可參照的前案丈量資料');
+    return;
+  }
+  setMeasureInputValue('f-lotlen', cache.lotLenM);
+  setMeasureInputValue('f-ditchwid', cache.ditchWidM);
+  setMeasureInputValue('f-stripe', cache.stripeLenM);
+  setMeasureInputValue('f-len', cache.lengthM);
+  setMeasureInputValue('f-road', cache.roadWidthLenM);
+  setMeasureInputValue('f-plen', cache.paveLenM);
+  setMeasureInputValue('f-pwid', cache.paveWidM);
+  const sourceLabel=[cache.sourceProjectName, cache.sourceTrenchNo].filter(Boolean).join(' / ');
+  toast(sourceLabel?`已帶入前案丈量資料：${sourceLabel}`:'已帶入前案丈量資料');
+}
+function renderDriveStatus(){
+  const box=document.getElementById('cfg-drive-result');
+  if(!box) return;
+  if(!hasDriveConfig()){
+    box.innerHTML='尚未設定 Google Drive 直傳。';
+    return;
+  }
+  const authOk=!!driveAccessToken && Date.now()<driveTokenExpiresAt-60000;
+  box.innerHTML=`
+    <div>${authOk?'✅':'ℹ️'} OAuth Client ID 已設定</div>
+    <div>資料夾：<b>${esc(appConfig.driveFolderId||'我的雲端硬碟根目錄')}</b></div>
+    <div>登入狀態：<b>${authOk?'已登入本頁':'尚未登入本頁'}</b></div>`;
+}
+function renderSyncUi(){
+  const api=document.getElementById('cfg-api-url');
+  const ms=document.getElementById('cfg-sync-ms');
+  const ls=document.getElementById('cfg-last-sync');
+  const driveClient=document.getElementById('cfg-drive-client-id');
+  const driveFolder=document.getElementById('cfg-drive-folder-id');
+  if(api) api.value=appConfig.apiBaseUrl||'';
+  if(ms) ms.value='manual';
+  if(ls) ls.value=lastSyncAt?fmtDateTime(lastSyncAt):'尚未同步';
+  if(driveClient) driveClient.value=appConfig.driveClientId||'';
+  if(driveFolder) driveFolder.value=appConfig.driveFolderId||'';
+  renderDriveStatus();
+  updateSyncCaption(hasApiConfig()?`${isSyncing?'同步中…':'已設定手動同步'}${lastSyncAt?`・${fmtDateTime(lastSyncAt)}`:''}`:'監造現場用・尚未設定同步');
+}
+function updateSyncCaption(text){
+  const el=document.getElementById('sync-caption');
+  if(el) el.textContent=text;
+}
+function startAutoSync(){
+  if(syncTimer) clearInterval(syncTimer);
+  syncTimer=null;
+}
+async function saveSyncConfig(){
+  appConfig.apiBaseUrl=normalizeApiUrl(document.getElementById('cfg-api-url').value);
+  appConfig.syncIntervalMs=Number(document.getElementById('cfg-sync-ms').value)||DEFAULT_SYNC_INTERVAL_MS;
+  appConfig.driveClientId=String(document.getElementById('cfg-drive-client-id').value||'').trim();
+  appConfig.driveFolderId=normalizeDriveFolderId(document.getElementById('cfg-drive-folder-id').value);
+  saveAppConfigToStorage();
+  renderSyncUi();
+  startAutoSync();
+  toast(appConfig.apiBaseUrl||appConfig.driveClientId?'已儲存設定，改為手動同步':'已清除同步網址');
+}
+async function testSyncConnection(){
+  appConfig.apiBaseUrl=normalizeApiUrl(document.getElementById('cfg-api-url').value);
+  appConfig.syncIntervalMs=Number(document.getElementById('cfg-sync-ms').value)||DEFAULT_SYNC_INTERVAL_MS;
+  saveAppConfigToStorage();
+  renderSyncUi();
+  if(!hasApiConfig()){
+    toast('請先貼上 Web App URL');
+    return;
+  }
+  const box=document.getElementById('cfg-test-result');
+  box.innerHTML='測試中…';
+  try{
+    const health=await apiGet('health');
+    const fields=await apiGet('registry_fields');
+    lastRegistryInfo=fields;
+    const mapping=fields.mapping||{};
+    const resolved=fields.resolvedHeaders||{};
+    box.innerHTML=`
+      <div>✅ 後端連線成功</div>
+      <div>來源工作表：<b>${esc(fields.sourceSheet||'')}</b></div>
+      <div>標題列：第 <b>${esc(fields.headerRow||'')}</b> 列</div>
+      <div style="margin-top:8px">欄位比對：</div>
+      <div style="margin-top:6px">${Object.keys(mapping).map(k=>{
+        const item=resolved[k]||{};
+        return `<div>${item.found?'✅':'❌'} <b>${esc(k)}</b> ← ${esc(item.wantedHeader||mapping[k]||'')}</div>`;
+      }).join('')}</div>`;
+    toast('連線測試成功');
+  }catch(e){
+    box.innerHTML=`<div style="color:var(--red)">❌ 測試失敗：${esc(shortErr(e))}</div>`;
+    toast('連線測試失敗');
+  }
+}
+
+function ensureGoogleIdentityReady(timeoutMs=15000){
+  return new Promise((resolve,reject)=>{
+    const started=Date.now();
+    (function check(){
+      if(window.google && google.accounts && google.accounts.oauth2){ resolve(); return; }
+      if(Date.now()-started>timeoutMs){ reject(new Error('Google 授權元件載入失敗')); return; }
+      setTimeout(check,120);
+    })();
+  });
+}
+function clearDriveSession(silent=false){
+  driveAccessToken='';
+  driveTokenExpiresAt=0;
+  driveAuthPromise=null;
+  renderDriveStatus();
+  if(!silent) toast('已清除本頁登入狀態');
+}
+function getDriveAuthRefreshBufferMs(){
+  return 5*60*1000;
+}
+function getDriveAccessTokenStillValid(){
+  return !!driveAccessToken && Date.now()<driveTokenExpiresAt-getDriveAuthRefreshBufferMs();
+}
+async function ensureDriveAuth(interactive=true, forceRefresh=false){
+  if(!forceRefresh && getDriveAccessTokenStillValid()) return driveAccessToken;
+  if(!hasDriveConfig()) throw new Error('請先在設定頁填入 Google OAuth Client ID');
+  await ensureGoogleIdentityReady();
+  if(driveAuthPromise) return driveAuthPromise;
+  driveAuthPromise=new Promise((resolve,reject)=>{
+    try{
+      driveTokenClient=google.accounts.oauth2.initTokenClient({
+        client_id:appConfig.driveClientId,
+        scope:DRIVE_SCOPE,
+        callback:(resp)=>{
+          driveAuthPromise=null;
+          if(!resp || resp.error){ reject(new Error(resp&&resp.error?resp.error:'Google 授權失敗')); return; }
+          driveAccessToken=String(resp.access_token||'');
+          const expiresIn=Number(resp.expires_in)||3600;
+          driveTokenExpiresAt=Date.now()+expiresIn*1000;
+          renderDriveStatus();
+          resolve(driveAccessToken);
+        },
+        error_callback:(err)=>{
+          driveAuthPromise=null;
+          reject(new Error((err&&err.type)||'Google 授權失敗'));
+        },
+      });
+      const promptValue=interactive?(driveAccessToken?'':'consent'):'';
+      driveTokenClient.requestAccessToken({prompt:promptValue});
+    }catch(e){
+      driveAuthPromise=null;
+      reject(e);
+    }
+  });
+  return driveAuthPromise;
+}
+async function driveFetchWithToken(url, options, interactive, forceRefresh){
+  const token=await ensureDriveAuth(interactive, forceRefresh);
+  const headers=new Headers(options.headers||{});
+  headers.set('Authorization',`Bearer ${token}`);
+  return fetch(url,{...options,headers});
+}
+async function driveFetch(url, options={}, interactive=true){
+  let resp=await driveFetchWithToken(url, options, interactive, false);
+  if(resp.status===401){
+    clearDriveSession(true);
+    try{
+      resp=await driveFetchWithToken(url, options, false, true);
+    }catch(e){
+      if(!interactive) throw e;
+      resp=await driveFetchWithToken(url, options, true, true);
+    }
+    if(resp.status===401 && interactive){
+      clearDriveSession(true);
+      resp=await driveFetchWithToken(url, options, true, true);
+    }
+  }
+  if(!resp.ok){
+    let detail='';
+    try{
+      const payload=await resp.clone().json();
+      detail=payload&&payload.error&&payload.error.message?payload.error.message:'';
+    }catch(e){}
+    throw new Error(detail || `Google Drive 回應 ${resp.status}`);
+  }
+  return resp;
+}
+async function testDriveConnection(){
+  appConfig.driveClientId=String(document.getElementById('cfg-drive-client-id').value||'').trim();
+  appConfig.driveFolderId=normalizeDriveFolderId(document.getElementById('cfg-drive-folder-id').value);
+  saveAppConfigToStorage();
+  renderSyncUi();
+  if(!hasDriveConfig()){
+    toast('請先填入 Google OAuth Client ID');
+    return;
+  }
+  const box=document.getElementById('cfg-drive-result');
+  if(box) box.innerHTML='測試中…';
+  try{
+    await ensureDriveAuth(true);
+    if(appConfig.driveFolderId){
+      const resp=await driveFetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(appConfig.driveFolderId)}?fields=id,name,mimeType`,{},false);
+      const info=await resp.json();
+      box.innerHTML=`<div>✅ Google Drive 授權成功</div><div>資料夾名稱：<b>${esc(info.name||appConfig.driveFolderId)}</b></div><div>MIME Type：${esc(info.mimeType||'')}</div>`;
+    }else{
+      box.innerHTML='<div>✅ Google Drive 授權成功</div><div>目前未指定資料夾，照片將上傳到我的雲端硬碟根目錄。</div>';
+    }
+    toast('Google Drive 連線成功');
+  }catch(e){
+    if(box) box.innerHTML=`<div style="color:var(--red)">❌ 測試失敗：${esc(shortErr(e))}</div>`;
+    clearDriveSession(true);
+    toast('Google Drive 連線失敗');
+  }
+}
+function detectMimeFromDataUrl(dataUrl){
+  const m=String(dataUrl||'').match(/^data:([^;,]+)[;,]/i);
+  return m?m[1]:'image/jpeg';
+}
+function dataUrlToBlob(dataUrl){
+  const s=String(dataUrl||'');
+  const idx=s.indexOf(',');
+  if(idx<0) throw new Error('照片資料格式不正確');
+  const mime=detectMimeFromDataUrl(s);
+  const bin=atob(s.slice(idx+1));
+  const arr=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+  return new Blob([arr],{type:mime});
+}
+function sanitizeFilePart(v){
+  return String(v||'').trim().replace(/[\/:*?"<>|\s]+/g,'_').replace(/^_+|_+$/g,'').slice(0,60);
+}
+function mimeToExt(mime){
+  const map={'image/jpeg':'jpg','image/jpg':'jpg','image/png':'png','image/webp':'webp','image/heic':'heic'};
+  return map[String(mime||'').toLowerCase()]||'jpg';
+}
+function buildDriveRecordFolderName(rec){
+  const trench=sanitizeFilePart(rec.trenchNo)||'未命名水號';
+  const project=sanitizeFilePart(rec.projectName)||'未命名用戶';
+  return `${trench}_${project}`;
+}
+function buildDrivePhotoName(rec,index,mimeType){
+  return `photo_${String(index+1).padStart(2,'0')}.${mimeToExt(mimeType)}`;
+}
+function buildDrivePhotoDescription(rec,index){
+  return [`案件ID:${rec.id||''}`,`行動代號:${rec.actionCode||''}`,`水號:${rec.trenchNo||''}`,`用戶名:${rec.projectName||''}`,`序號:${index+1}`].join(' | ');
+}
+function escapeDriveQueryLiteral(v){
+  return String(v||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+}
+function getDriveConfiguredParentId(){
+  return normalizeDriveFolderId(appConfig.driveFolderId)||'root';
+}
+function isManagedDrivePhotoName(name){
+  return /^photo_\d{2}(?:\.[^.]+)?$/i.test(String(name||'').trim());
+}
+async function getDriveFileMeta(fileId, fields='id,name,parents,mimeType'){
+  const resp=await driveFetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=${encodeURIComponent(fields)}`,{},false);
+  return resp.json();
+}
+async function findDriveFolderByName(folderName, parentId='root'){
+  const escapedName=escapeDriveQueryLiteral(folderName);
+  const qParts=[
+    "mimeType = 'application/vnd.google-apps.folder'",
+    'trashed = false',
+    `name = '${escapedName}'`,
+    `'${escapeDriveQueryLiteral(parentId || 'root')}' in parents`
+  ];
+  const resp=await driveFetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(qParts.join(' and '))}&fields=${encodeURIComponent('files(id,name,parents,mimeType)')}&pageSize=10&orderBy=createdTime desc`,{},false);
+  const data=await resp.json();
+  return Array.isArray(data.files)&&data.files.length?data.files[0]:null;
+}
+async function createDriveFolder(folderName, parentId='root'){
+  const metadata={name:folderName,mimeType:'application/vnd.google-apps.folder'};
+  if(parentId && parentId!=='root') metadata.parents=[parentId];
+  const resp=await driveFetch('https://www.googleapis.com/drive/v3/files?fields=id,name,parents,mimeType',{
+    method:'POST',
+    headers:{'Content-Type':'application/json; charset=UTF-8'},
+    body:JSON.stringify(metadata)
+  },false);
+  return resp.json();
+}
+async function updateDriveFileMeta(fileId, metadata){
+  const resp=await driveFetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=${encodeURIComponent('id,name,parents,mimeType')}`,{
+    method:'PATCH',
+    headers:{'Content-Type':'application/json; charset=UTF-8'},
+    body:JSON.stringify(metadata||{})
+  },false);
+  return resp.json();
+}
+async function ensureDriveRecordFolder(rec, preferredFolderId=''){
+  const desiredName=buildDriveRecordFolderName(rec);
+  const parentId=getDriveConfiguredParentId();
+  if(preferredFolderId){
+    try{
+      const current=await getDriveFileMeta(preferredFolderId);
+      if(current && current.mimeType==='application/vnd.google-apps.folder'){
+        if((current.name||'')!==desiredName){
+          const updated=await updateDriveFileMeta(preferredFolderId,{name:desiredName});
+          return {id:updated.id||preferredFolderId,name:updated.name||desiredName};
+        }
+        return {id:current.id||preferredFolderId,name:current.name||desiredName};
+      }
+    }catch(e){}
+  }
+  const found=await findDriveFolderByName(desiredName,parentId);
+  if(found) return {id:found.id,name:found.name||desiredName};
+  const created=await createDriveFolder(desiredName,parentId);
+  return {id:created.id,name:created.name||desiredName};
+}
+async function listDriveFilesInFolder(folderId){
+  const out=[];
+  let pageToken='';
+  do{
+    const q=`'${escapeDriveQueryLiteral(folderId)}' in parents and trashed = false`;
+    const url=new URL('https://www.googleapis.com/drive/v3/files');
+    url.searchParams.set('q', q);
+    url.searchParams.set('fields','nextPageToken,files(id,name,mimeType,webViewLink,webContentLink,thumbnailLink)');
+    url.searchParams.set('pageSize','100');
+    if(pageToken) url.searchParams.set('pageToken',pageToken);
+    const resp=await driveFetch(url.toString(),{},false);
+    const data=await resp.json();
+    out.push(...(Array.isArray(data.files)?data.files:[]));
+    pageToken=data.nextPageToken||'';
+  }while(pageToken);
+  return out;
+}
+async function deleteDriveFile(fileId){
+  await driveFetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`,{method:'DELETE'},false);
+}
+async function uploadBlobToDrive(blob,{name,mimeType,description='',parentFolderId=''}){
+  const boundary='trench_'+Date.now()+'_'+Math.random().toString(36).slice(2);
+  const metadata={name:name||`photo_${Date.now()}.${mimeToExt(mimeType||blob.type)}`};
+  if(description) metadata.description=description;
+  const targetFolderId=normalizeDriveFolderId(parentFolderId)||normalizeDriveFolderId(appConfig.driveFolderId);
+  if(targetFolderId) metadata.parents=[targetFolderId];
+  const body=new Blob([
+    `--${boundary}
+Content-Type: application/json; charset=UTF-8
+
+${JSON.stringify(metadata)}
+`,
+    `--${boundary}
+Content-Type: ${mimeType||blob.type||'application/octet-stream'}
+
+`,
+    blob,
+    `
+--${boundary}--`
+  ],{type:`multipart/related; boundary=${boundary}`});
+  const resp=await driveFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,webViewLink,webContentLink,thumbnailLink',{
+    method:'POST',
+    headers:{'Content-Type':`multipart/related; boundary=${boundary}`},
+    body
+  },true);
+  return resp.json();
+}
+
+function isDrivePhoto(photo){
+  return !!(photo && photo.kind==='drive' && photo.fileId);
+}
+function getPhotoPreviewSrc(photo){
+  const p=normalizePhotoItem(photo);
+  return p ? (p.previewData||'') : '';
+}
+function getPhotoOpenUrl(photo){
+  const p=normalizePhotoItem(photo);
+  return p ? (p.webViewLink||p.webContentLink||p.thumbnailLink||p.previewData||'') : '';
+}
+function getPhotoStatusLabel(photo){
+  const p=normalizePhotoItem(photo);
+  if(!p) return '';
+  if(isDrivePhoto(p)) return 'Drive';
+  if(p.uploadState==='error') return '待重傳';
+  return '本機';
+}
+function hasPendingPhotoUploads(photos){
+  return normalizePhotos(photos).some(p=>!isDrivePhoto(p) && !!p.previewData);
+}
+function buildPhotoItemFromDriveFile(file, previewData=''){
+  return normalizePhotoItem({
+    kind:'drive',
+    fileId:String(file&&file.id||'').trim(),
+    name:String(file&&file.name||'').trim(),
+    mimeType:String(file&&file.mimeType||'image/jpeg').trim(),
+    webViewLink:String(file&&file.webViewLink||'').trim(),
+    webContentLink:String(file&&file.webContentLink||'').trim(),
+    thumbnailLink:String(file&&file.thumbnailLink||'').trim(),
+    previewData:String(previewData||'').trim(),
+    uploadedAt:new Date().toISOString(),
+    uploadState:'uploaded',
+    lastError:''
+  });
+}
+function sortManagedDriveFiles(files){
+  return [...(Array.isArray(files)?files:[])]
+    .filter(file=>isManagedDrivePhotoName(file&&file.name))
+    .sort((a,b)=>String(a&&a.name||'').localeCompare(String(b&&b.name||''), undefined, {numeric:true,sensitivity:'base'}));
+}
+async function getManagedDriveFilesForRecord(rec){
+  const folderId=String(rec&&rec.driveRecordFolderId||'').trim();
+  if(!folderId) return {files:[],folderMissing:false};
+  try{
+    const files=sortManagedDriveFiles(await listDriveFilesInFolder(folderId));
+    return {files,folderMissing:false};
+  }catch(e){
+    return {files:[],folderMissing:true,error:e};
+  }
+}
+async function reconcileRecordPhotosAgainstDrive(rec){
+  const currentPhotos=normalizePhotos(rec&&rec.photos);
+  const currentDrivePhotos=currentPhotos.filter(isDrivePhoto);
+  const pendingPhotos=currentPhotos.filter(photo=>!isDrivePhoto(photo) && !!photo.previewData);
+  const folderId=String(rec&&rec.driveRecordFolderId||'').trim();
+  const folderName=String(rec&&rec.driveRecordFolderName||'').trim();
+
+  if(!folderId){
+    return {
+      photos:[...pendingPhotos],
+      drivePhotos:[],
+      pendingPhotos,
+      missingDrive:currentDrivePhotos.length>0,
+      removedStaleCount:currentDrivePhotos.length,
+      folderId:'',
+      folderName:''
+    };
+  }
+
+  const driveState=await getManagedDriveFilesForRecord(rec);
+  const driveFiles=driveState.files||[];
+  if(!driveFiles.length){
+    return {
+      photos:[...pendingPhotos],
+      drivePhotos:[],
+      pendingPhotos,
+      missingDrive:true,
+      removedStaleCount:currentDrivePhotos.length,
+      folderId:driveState.folderMissing?'':folderId,
+      folderName:driveState.folderMissing?'':folderName
+    };
+  }
+
+  const previewById=new Map(currentDrivePhotos.map(photo=>[String(photo.fileId||'').trim(), String(photo.previewData||'').trim()]));
+  const drivePhotos=driveFiles.map(file=>buildPhotoItemFromDriveFile(file, previewById.get(String(file&&file.id||'').trim())||''));
+
+  return {
+    photos:[...drivePhotos, ...pendingPhotos],
+    drivePhotos,
+    pendingPhotos,
+    missingDrive:false,
+    removedStaleCount:Math.max(0, currentDrivePhotos.length-drivePhotos.length),
+    folderId,
+    folderName
+  };
+}
+async function uploadPendingPhotosToDriveFolder(photos, rec, preferredFolderId=''){
+  const pendingPhotos=normalizePhotos(photos).filter(photo=>!isDrivePhoto(photo) && !!photo.previewData);
+  const processedPhotos=[];
+  let uploadedCount=0, failedCount=0;
+  let folderInfo={id:String(preferredFolderId||'').trim(),name:String(rec&&rec.driveRecordFolderName||'').trim()};
+
+  if(!pendingPhotos.length){
+    return {photos:processedPhotos,uploadedCount,failedCount,folderId:folderInfo.id,folderName:folderInfo.name};
+  }
+
+  await ensureDriveAuth(true);
+  folderInfo=await ensureDriveRecordFolder(rec, preferredFolderId);
+  const existingFiles=sortManagedDriveFiles(await listDriveFilesInFolder(folderInfo.id));
+  let nextIndex=existingFiles.length;
+
+  for(const photo of pendingPhotos){
+    try{
+      const blob=dataUrlToBlob(photo.previewData);
+      const mimeType=photo.mimeType||blob.type||'image/jpeg';
+      const remote=await uploadBlobToDrive(blob,{
+        name:buildDrivePhotoName(rec,nextIndex,mimeType),
+        mimeType,
+        description:buildDrivePhotoDescription(rec,nextIndex),
+        parentFolderId:folderInfo.id,
+      });
+      processedPhotos.push(normalizePhotoItem({
+        kind:'drive',
+        fileId:remote.id,
+        name:remote.name,
+        mimeType:remote.mimeType||mimeType,
+        webViewLink:remote.webViewLink||'',
+        webContentLink:remote.webContentLink||'',
+        thumbnailLink:remote.thumbnailLink||'',
+        previewData:photo.previewData,
+        uploadedAt:new Date().toISOString(),
+        uploadState:'uploaded',
+        lastError:''
+      }));
+      uploadedCount++;
+      nextIndex++;
+    }catch(e){
+      processedPhotos.push(normalizePhotoItem({...photo,uploadState:'error',lastError:shortErr(e)}));
+      failedCount++;
+    }
+  }
+
+  return {photos:processedPhotos,uploadedCount,failedCount,folderId:folderInfo.id||'',folderName:folderInfo.name||''};
+}
+async function syncPhotosToDriveFolder(photos, rec, preferredFolderId=''){
+  const list=normalizePhotos(photos);
+  const uploaded=[];
+  let uploadedCount=0, failedCount=0;
+  const hasAnyPhoto=list.length>0;
+  await ensureDriveAuth(true);
+  let folderInfo={id:'',name:''};
+  if(hasAnyPhoto){
+    folderInfo=await ensureDriveRecordFolder(rec, preferredFolderId);
+  }else if(preferredFolderId){
+    folderInfo={id:preferredFolderId,name:buildDriveRecordFolderName(rec)};
+  }
+  if(folderInfo.id){
+    const existingFiles=await listDriveFilesInFolder(folderInfo.id);
+    for(const file of existingFiles){
+      if(!isManagedDrivePhotoName(file.name)) continue;
+      try{ await deleteDriveFile(file.id); }catch(e){}
+    }
+  }
+  for(let i=0;i<list.length;i++){
+    const photo=normalizePhotoItem(list[i]);
+    if(!photo){ continue; }
+    if(!photo.previewData){
+      uploaded.push(normalizePhotoItem({...photo,uploadState:isDrivePhoto(photo)?'uploaded':'error',lastError:photo.lastError||'缺少本機預覽資料，無法重新上傳'}));
+      if(!isDrivePhoto(photo)) failedCount++;
+      continue;
+    }
+    try{
+      const blob=dataUrlToBlob(photo.previewData);
+      const mimeType=photo.mimeType||blob.type||'image/jpeg';
+      const remote=await uploadBlobToDrive(blob,{
+        name:buildDrivePhotoName(rec,i,mimeType),
+        mimeType,
+        description:buildDrivePhotoDescription(rec,i),
+        parentFolderId:folderInfo.id,
+      });
+      uploaded.push(normalizePhotoItem({
+        kind:'drive',
+        fileId:remote.id,
+        name:remote.name,
+        mimeType:remote.mimeType||mimeType,
+        webViewLink:remote.webViewLink||'',
+        webContentLink:remote.webContentLink||'',
+        thumbnailLink:remote.thumbnailLink||'',
+        previewData:photo.previewData,
+        uploadedAt:new Date().toISOString(),
+        uploadState:'uploaded',
+      }));
+      uploadedCount++;
+    }catch(e){
+      uploaded.push(normalizePhotoItem({...photo,uploadState:'error',lastError:shortErr(e)}));
+      failedCount++;
+    }
+  }
+  return {photos:uploaded,uploadedCount,failedCount,folderId:folderInfo.id||'',folderName:folderInfo.name||''};
+}
+
+function openPhotoPreview(source,index){
+  const arr=source==='detail'?curDetailPhotos:editPhotos;
+  const photo=normalizePhotoItem(arr[index]);
+  const src=getPhotoPreviewSrc(photo);
+  if(src){ showImg(src); return; }
+  const url=getPhotoOpenUrl(photo);
+  if(url){ window.open(url,'_blank','noopener'); return; }
+  toast('此照片目前沒有可預覽內容');
+}
+function openPhotoDrive(source,index){
+  const arr=source==='detail'?curDetailPhotos:editPhotos;
+  const photo=normalizePhotoItem(arr[index]);
+  const url=photo?(photo.webViewLink||photo.webContentLink||''):'';
+  if(!url){ toast('此照片尚未上傳到 Google Drive'); return; }
+  window.open(url,'_blank','noopener');
+}
+
+function flattenFormData(obj,prefix,out){
+  out=out||[];
+  if(obj==null) return out;
+  if(typeof obj==='object'){
+    if(prefix){
+      out.push([prefix, JSON.stringify(obj)]);
+      return out;
+    }
+    Object.keys(obj).forEach(k=>flattenFormData(obj[k], k, out));
+    return out;
+  }
+  out.push([prefix, String(obj)]);
+  return out;
+}
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+function sanitizeDecimalString(value){
+  let s=String(value==null?'':value);
+  s=s.replace(/[^\d.]/g,'');
+  const firstDot=s.indexOf('.');
+  if(firstDot!==-1){
+    s=s.slice(0,firstDot+1)+s.slice(firstDot+1).replace(/\./g,'');
+  }
+  return s;
+}
+function jsonpRequest(action, params={}){
+  const base=normalizeApiUrl(appConfig.apiBaseUrl);
+  if(!base) return Promise.reject(new Error('尚未設定 Web App URL'));
+  return new Promise((resolve,reject)=>{
+    const cbName='__trenchJsonp_'+Date.now()+'_'+Math.random().toString(36).slice(2);
+    const script=document.createElement('script');
+    const timeout=setTimeout(()=>{
+      cleanup();
+      reject(new Error('連線逾時，請確認 Web App 權限與網址'));
+    }, 30000);
+    function cleanup(){
+      clearTimeout(timeout);
+      try{ delete window[cbName]; }catch(e){ window[cbName]=undefined; }
+      try{ script.remove(); }catch(e){}
+    }
+    window[cbName]=(payload)=>{
+      cleanup();
+      if(!payload || payload.ok!==true){
+        reject(new Error((payload&&payload.error&&payload.error.message)||'後端處理失敗'));
+        return;
+      }
+      resolve(payload.data);
+    };
+    script.onerror=()=>{
+      cleanup();
+      reject(new Error('無法載入 Web App，請確認網址與部署權限'));
+    };
+    const url=new URL(base);
+    url.searchParams.set('action', action);
+    url.searchParams.set('transport', 'jsonp');
+    url.searchParams.set('callback', cbName);
+    Object.entries(params||{}).forEach(([k,v])=>{
+      if(v==null || v==='') return;
+      url.searchParams.set(k, String(v));
+    });
+    script.src=url.toString();
+    document.body.appendChild(script);
+  });
+}
+function opaquePost(action,payload={}){
+  const base=normalizeApiUrl(appConfig.apiBaseUrl);
+  if(!base) return Promise.reject(new Error('尚未設定 Web App URL'));
+  return new Promise((resolve,reject)=>{
+    const requestId='frm_'+Date.now()+'_'+Math.random().toString(36).slice(2);
+    const iframe=document.createElement('iframe');
+    const form=document.createElement('form');
+    let loaded=false;
+    const timeout=setTimeout(()=>{
+      cleanup();
+      reject(new Error('送出逾時，請確認 Web App 權限與網址'));
+    }, 45000);
+    function cleanup(){
+      clearTimeout(timeout);
+      setTimeout(()=>{
+        try{ iframe.remove(); }catch(e){}
+        try{ form.remove(); }catch(e){}
+      },0);
+    }
+    iframe.name=requestId;
+    iframe.style.display='none';
+    iframe.onload=()=>{
+      if(!loaded){ loaded=true; cleanup(); resolve({ok:true}); }
+    };
+    document.body.appendChild(iframe);
+    form.method='POST';
+    form.action=base;
+    form.target=requestId;
+    form.style.display='none';
+    const fields=flattenFormData({action, ...payload});
+    fields.forEach(([k,v])=>{
+      const input=document.createElement('input');
+      input.type='hidden';
+      input.name=k;
+      input.value=v;
+      form.appendChild(input);
+    });
+    document.body.appendChild(form);
+    form.submit();
+  });
+}
+async function apiGet(action, params={}){
+  return await jsonpRequest(action, params||{});
+}
+async function apiPost(action,payload={}){
+  const params={};
+  Object.entries(payload||{}).forEach(([k,v])=>{
+    if(v==null) return;
+    params[k]=typeof v==='object'?JSON.stringify(v):String(v);
+  });
+  return await jsonpRequest(action, params);
+}
+
+function syncHomeUi(){
+  const fab=document.getElementById('home-fab');
+  if(fab) fab.style.display='none';
+  updateToTopButton();
+}
+function updateToTopButton(){
+  const btn=document.getElementById('to-top-btn');
+  if(!btn) return;
+  const onListPage=!!document.getElementById('page-list')?.classList.contains('active');
+  const y=window.scrollY||document.documentElement.scrollTop||0;
+  btn.classList.toggle('show', onListPage && y>260);
+}
+function scrollToTopSmooth(){
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+function rememberListScroll(){
+  if(document.getElementById('page-list')?.classList.contains('active')){
+    listPageScrollY=window.scrollY||document.documentElement.scrollTop||0;
+  }
+}
+function returnToListPage(){
+  restoreListScroll=true;
+  gotoPage('page-list');
+}
+function gotoPage(id){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  const page=document.getElementById(id);
+  if(page) page.classList.add('active');
+  if(id==='page-list'){
+    renderList();
+    if(homeTab==='map') setTimeout(()=>initMeasureMap(),0);
+    const targetY=restoreListScroll?listPageScrollY:0;
+    requestAnimationFrame(()=>window.scrollTo(0,targetY));
+    restoreListScroll=false;
+  }else{
+    window.scrollTo(0,0);
+  }
+  if(id==='page-sync') renderSyncUi();
+  syncHomeUi();
+}
+function switchHomeTab(tab){
+  homeTab=tab;
+  const isList=tab==='list';
+  document.getElementById('home-tab-list').classList.toggle('active',isList);
+  document.getElementById('home-tab-map').classList.toggle('active',!isList);
+  document.getElementById('home-view-list').classList.toggle('active',isList);
+  document.getElementById('home-view-map').classList.toggle('active',!isList);
+  if(isList) renderList(); else initMeasureMap();
+  syncHomeUi();
+}
+
+function compressImg(file){
+  return new Promise(res=>{
+    const url=URL.createObjectURL(file);
+    const img=new Image();
+    img.onload=()=>{
+      URL.revokeObjectURL(url);
+      const MAX=640,Q=0.55;
+      let w=img.naturalWidth,h=img.naturalHeight;
+      if(w>MAX){h=Math.round(h*MAX/w);w=MAX;}
+      if(h>MAX&&h>w){w=Math.round(w*MAX/h);h=MAX;}
+      const c=document.createElement('canvas');
+      c.width=w;c.height=h;
+      c.getContext('2d').drawImage(img,0,0,w,h);
+      const data=c.toDataURL('image/jpeg',Q);
+      c.width=0;c.height=0;
+      res(data);
+    };
+    img.onerror=()=>{URL.revokeObjectURL(url);res(null);};
+    img.src=url;
+  });
+}
+
+function normalizeDataSyncStatus(value){
+  const s=String(value||'').trim();
+  return ['pending','syncing','synced','error'].includes(s)?s:'';
+}
+function normalizePhotoSyncStatus(value){
+  const s=String(value||'').trim();
+  return ['none','pending','syncing','synced','error','no_drive'].includes(s)?s:'';
+}
+function inferDataSyncStatus(input){
+  const explicit=normalizeDataSyncStatus(input&&input.dataSyncStatus);
+  if(explicit) return explicit;
+  const legacy=String(input&&input.syncState||'').trim();
+  if(legacy==='error') return 'error';
+  if(legacy==='syncing') return 'syncing';
+  if(legacy==='pending' || legacy==='local') return 'pending';
+  return 'synced';
+}
+function inferPhotoSyncStatus(input, photos){
+  const explicit=normalizePhotoSyncStatus(input&&input.photoSyncStatus);
+  if(explicit) return explicit;
+  const list=normalizePhotos(photos!=null?photos:(input&&input.photos));
+  if(!list.length) return 'none';
+  const hasLocal=list.some(photo=>!isDrivePhoto(photo) && !!photo.previewData);
+  const hasError=list.some(photo=>String(photo&&photo.uploadState||'').trim()==='error');
+  if(hasError) return 'error';
+  if(hasLocal){
+    const legacy=String(input&&input.syncState||'').trim();
+    if(legacy==='syncing') return 'syncing';
+    if(legacy==='error') return 'error';
+    if(legacy==='local' || legacy==='pending') return 'pending';
+    return 'pending';
+  }
+  return 'synced';
+}
+function getDataSyncStatusText(status){
+  return ({pending:'資料待同步',syncing:'資料同步中',synced:'資料同步完成',error:'資料同步失敗'})[status]||'資料同步完成';
+}
+function getPhotoSyncStatusText(status){
+  return ({none:'無照片',pending:'照片待同步',syncing:'照片同步中',synced:'照片同步完成',error:'照片同步失敗',no_drive:'未設定 Drive'})[status]||'無照片';
+}
+function getDataSyncBadgeClass(status){
+  return ({pending:'pend',syncing:'warn',synced:'done',error:'err'})[status]||'done';
+}
+function getPhotoSyncBadgeClass(status){
+  return ({none:'neutral',pending:'pend',syncing:'warn',synced:'done',error:'err',no_drive:'neutral'})[status]||'neutral';
+}
+function renderDataSyncBadge(rec){
+  const status=normalizeDataSyncStatus(rec&&rec.dataSyncStatus)||'synced';
+  return `<span class="status-badge ${getDataSyncBadgeClass(status)}">${esc(getDataSyncStatusText(status))}</span>`;
+}
+function renderPhotoSyncBadge(rec){
+  const status=normalizePhotoSyncStatus(rec&&rec.photoSyncStatus)||'none';
+  return `<span class="status-badge ${getPhotoSyncBadgeClass(status)}">${esc(getPhotoSyncStatusText(status))}</span>`;
+}
+function needsDataSync(rec){
+  return ['pending','syncing','error'].includes(normalizeDataSyncStatus(rec&&rec.dataSyncStatus));
+}
+function needsPhotoSync(rec){
+  return ['pending','syncing','error','no_drive'].includes(normalizePhotoSyncStatus(rec&&rec.photoSyncStatus));
+}
+function needsAnySync(rec){
+  return needsDataSync(rec) || needsPhotoSync(rec);
+}
+function recordMatchesKeyword(r, kw){
+  kw=String(kw||'').trim().toLowerCase();
+  if(!kw) return true;
+  return [
+    r.actionCode,
+    r.projectName,
+    r.trenchNo,
+    r.address,
+    r.meterLocation,
+  ].some(v=>String(v||'').toLowerCase().includes(kw));
+}
+function recordMatchesListStatus(r, filter){
+  if(filter==='all') return true;
+  if(filter==='pending') return r.status==='pending';
+  if(filter==='done') return r.status!=='pending';
+  if(filter==='sync') return needsAnySync(r);
+  return true;
+}
+function setListStatusFilter(filter){
+  listStatusFilter=filter||'pending';
+  renderList();
+}
+async function renderList(){
+  const records=(await getAllLocal()).filter(r=>!r.deleted);
+  const kw=(document.getElementById('srch').value||'').trim().toLowerCase();
+  const done=records.filter(r=>r.status!=='pending');
+  const pend=records.filter(r=>r.status==='pending');
+  const syncPending=records.filter(r=>needsAnySync(r)).length;
+  const filteredByStatus=records.filter(r=>recordMatchesListStatus(r,listStatusFilter));
+  const filtered=filteredByStatus.filter(r=>recordMatchesKeyword(r,kw));
+  const stats=[
+    ['all','全部',records.length],
+    ['pending','待丈量',pend.length],
+    ['done','已完成',done.length],
+    ['sync','同步待處理',syncPending],
+  ];
+  document.getElementById('stats').innerHTML=stats.map(([key,label,count])=>`<button class="chip filter ${listStatusFilter===key?'active':''}" onclick="setListStatusFilter('${key}')">${label} <b>${count}</b></button>`).join('');
+  const el=document.getElementById('rlist');
+  if(!filtered.length){
+    const statusLabel=({all:'全部',pending:'待丈量',done:'已完成',sync:'同步待處理'})[listStatusFilter]||'目前';
+    el.innerHTML=`<div class="empty"><div class="empty-i">📏</div><div>${kw?'查無結果':`${statusLabel}狀態目前沒有案件`}</div></div>`;
+    return;
+  }
+  el.innerHTML=filtered.map(r=>{
+    const isPend=r.status==='pending';
+    const dateText=r.measuredAt?String(r.measuredAt).slice(0,10):'待填寫';
+    return `<div class="rcard${isPend?' pending':''}" onclick="openDetail('${escAttr(r.id)}')">
+      <div class="rc-hd">
+        <div style="flex:1;min-width:0">
+          <div class="rc-t">${esc(r.projectName||'')}</div>
+          <div class="rc-no">水號：${esc(r.trenchNo||'')}</div>
+          ${r.address?`<div class="rc-addr"><span>${esc(r.address)}</span><button class="addr-map-btn" onclick="openRecordOnMap(event,'${escAttr(r.id)}')" title="查看地圖">📍</button></div>`:''}
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
+          <div class="rc-dt">${esc(dateText)}</div>
+          <span class="status-badge ${isPend?'pend':'done'}">${isPend?'待丈量':'已完成'}</span>
+        </div>
+      </div>
+      ${isPend?`<div class="dims"><span class="dtag pending">尚未丈量，點擊開始填寫</span></div>`:`
+        <div class="dims">
+          ${numValue(r.lengthM)?`<span class="dtag">溝長 ${numText(r.lengthM)}m</span>`:''}
+          ${numValue(r.roadWidthLenM)?`<span class="dtag">路幅 ${numText(r.roadWidthLenM)}m</span>`:''}
+          ${(numValue(r.paveLenM)||numValue(r.paveWidM))?`<span class="dtag p">刨鋪 長${numText(r.paveLenM)}m × 寬${numText(r.paveWidM)}m</span>`:''}
+          ${numValue(r.lotLenM)?`<span class="dtag">宅地 ${numText(r.lotLenM)}m</span>`:''}
+          ${numValue(r.ditchWidM)?`<span class="dtag">水溝 ${numText(r.ditchWidM)}m</span>`:''}
+          ${numValue(r.stripeLenM)?`<span class="dtag">標線 ${numText(r.stripeLenM)}m</span>`:''}
+        </div>`}
+      <div class="rc-ft" style="align-items:flex-start;gap:8px;flex-wrap:wrap">
+        <div class="pbadge">📷 ${(r.photos||[]).length} 張</div>
+        <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+          <div class="pbadge">${renderPhotoSyncBadge(r)}</div>
+          <div class="pbadge">${renderDataSyncBadge(r)}</div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  if(document.getElementById('page-list').classList.contains('active')&&homeTab==='map'){
+    setTimeout(()=>initMeasureMap(),0);
+  }
+}
+
+async function ensureGoogleMaps(){
+  if(window.google&&window.google.maps) return window.google.maps;
+  if(googleMapsPromise) return googleMapsPromise;
+  googleMapsPromise=new Promise((resolve,reject)=>{
+    const cb='__onGoogleMapsReady';
+    window[cb]=()=>resolve(window.google.maps);
+    const s=document.createElement('script');
+    s.src=`https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(MAPS_API_KEY)}&language=zh-TW&callback=${cb}`;
+    s.async=true;s.defer=true;
+    s.onerror=()=>reject(new Error('Google Maps 載入失敗，請確認網路或 API Key 設定'));
+    document.head.appendChild(s);
+  });
+  return googleMapsPromise;
+}
+function isValidGps(lat,lng){
+  if(!Number.isFinite(+lat)||!Number.isFinite(+lng)) return false;
+  if(Math.abs(+lat)>90||Math.abs(+lng)>180) return false;
+  if(+lat===0 && +lng===0) return false;
+  return true;
+}
+function focusMapRecordById(id){
+  if(!id||!measureMapMarkerMap.has(id)){ toast('此案件目前無法在丈量地圖上顯示'); return; }
+  const marker=measureMapMarkerMap.get(id);
+  focusMapRecordId=id;
+  measureMap.setCenter(marker.getPosition());
+  measureMap.setZoom(18);
+  google.maps.event.trigger(marker,'click');
+}
+function openRecordOnMap(ev,id){
+  if(ev){ev.stopPropagation();ev.preventDefault();}
+  const mapSearch=document.getElementById('map-srch');
+  if(mapSearch) mapSearch.value='';
+  focusMapRecordId=id;
+  gotoPage('page-list');
+  switchHomeTab('map');
+}
+function buildMapInfoHtml(r){
+  const eid=encodeURIComponent(String(r.id||''));
+  return `<div class="map-info">
+    <div class="map-info-title">${esc(r.projectName||'（未命名）')}</div>
+    <div class="map-info-row"><b>水號：</b>${esc(r.trenchNo||'—')}</div>
+    <div class="map-info-row"><b>地址：</b>${esc(r.address||'—')}</div>
+    <div class="map-info-row"><b>表位位置：</b>${esc(r.meterLocation||'—')}</div>
+    <div class="map-info-row"><b>資料狀態：</b>${esc(getDataSyncStatusText(r.dataSyncStatus))}</div>
+    <div class="map-info-row"><b>照片狀態：</b>${esc(getPhotoSyncStatusText(r.photoSyncStatus))}</div>
+    <div class="map-info-row"><b>GPS：</b>${esc(isValidGps(r.lat,r.lng)?fmtGps(r.lat,r.lng):'未記錄')}</div>
+    <div class="map-info-actions">
+      <button class="map-info-btn route" onclick="routeToRecordFromMap('${eid}')">規劃路線</button>
+      <button class="map-info-btn fill" onclick="openMeasureForm('${eid}')">填寫測量資訊</button>
+    </div>
+  </div>`;
+}
+async function routeToRecordFromMap(encodedId){
+  const id=decodeURIComponent(encodedId);
+  const r=await getRecLocal(id); if(!r) return;
+  const ua=navigator.userAgent||'';
+  const isAndroid=/Android/i.test(ua);
+  const isIOS=/iPhone|iPad|iPod/i.test(ua);
+  const hasGps=isValidGps(r.lat,r.lng);
+  const latlng=hasGps?`${r.lat},${r.lng}`:'';
+  const q=[r.projectName||'',r.address||''].filter(Boolean).join(' ');
+  const webUrl=hasGps
+    ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(latlng)}`
+    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
+  if(isAndroid&&hasGps){
+    window.location.href=`google.navigation:q=${encodeURIComponent(latlng)}`;
+    setTimeout(()=>{window.location.href=webUrl;},1200);
+    return;
+  }
+  if(isIOS){
+    const iosUrl=hasGps
+      ? `comgooglemaps://?daddr=${encodeURIComponent(latlng)}&directionsmode=driving`
+      : `comgooglemaps://?q=${encodeURIComponent(q)}`;
+    window.location.href=iosUrl;
+    setTimeout(()=>{window.location.href=webUrl;},1200);
+    return;
+  }
+  window.location.href=webUrl;
+}
+async function openMeasureForm(encodedId){
+  const id=decodeURIComponent(encodedId);
+  const r=await getRecLocal(id); if(!r) return;
+  curDetailId=id;
+  if(measureMapInfo) measureMapInfo.close();
+  rememberListScroll();
+  if(r.status==='pending') openAdd(r); else await editRecord();
+}
+function ensureUserMarker(){
+  if(!measureMap || !window.google) return null;
+  if(!measureMapUserMarker){
+    measureMapUserMarker=new google.maps.Marker({
+      map:measureMap,
+      zIndex:999,
+      title:'目前位置',
+      icon:{path:google.maps.SymbolPath.CIRCLE,scale:9,fillColor:'#1a73e8',fillOpacity:1,strokeColor:'#ffffff',strokeWeight:3}
+    });
+  }
+  return measureMapUserMarker;
+}
+async function locateMeOnMap(){
+  const btn=document.getElementById('map-locate-btn');
+  if(!navigator.geolocation){toast('此裝置不支援定位');return;}
+  if(btn) btn.disabled=true;
+  try{
+    await ensureGoogleMaps();
+    if(!measureMap) await initMeasureMap();
+    const pos=await new Promise((resolve,reject)=>{
+      navigator.geolocation.getCurrentPosition(resolve,reject,{enableHighAccuracy:true,timeout:10000,maximumAge:0});
+    });
+    const lat=+pos.coords.latitude,lng=+pos.coords.longitude;
+    if(!isValidGps(lat,lng)) throw new Error('定位結果無效');
+    const marker=ensureUserMarker();
+    if(marker) marker.setPosition({lat,lng});
+    if(measureMap){ measureMap.setCenter({lat,lng}); measureMap.setZoom(18); }
+    if(measureMapInfo && marker){
+      measureMapInfo.setContent('<div class="map-info"><div class="map-info-title">目前位置</div><div class="map-info-row">已回到你的定位點。</div></div>');
+      measureMapInfo.open({map:measureMap,anchor:marker});
+    }
+    toast('已定位到你目前的位置');
+  }catch(e){
+    toast(shortErr(e));
+  }finally{ if(btn) btn.disabled=false; }
+}
+async function initMeasureMap(){
+  const summaryEl=document.getElementById('map-summary');
+  const canvas=document.getElementById('map-canvas');
+  const emptyEl=document.getElementById('map-empty');
+  const kw=(document.getElementById('map-srch')?.value||'').trim().toLowerCase();
+  if(!summaryEl||!canvas||!emptyEl) return;
+  summaryEl.textContent='讀取地圖資料中…';
+  const all=(await getAllLocal()).filter(r=>!r.deleted);
+  const pendingMeasure=all.filter(r=>r.status==='pending');
+  const pendingSync=all.filter(r=>r.status!=='pending' && needsAnySync(r));
+  const visibleRecords=all.filter(r=>r.status==='pending' || needsAnySync(r));
+  const filteredRecords=kw?visibleRecords.filter(r=>recordMatchesKeyword(r,kw)):visibleRecords;
+  const points=filteredRecords.filter(r=>isValidGps(r.lat,r.lng));
+  summaryEl.textContent=kw
+    ? `待丈量 ${pendingMeasure.length} 筆、待同步 ${pendingSync.length} 筆；符合搜尋 ${filteredRecords.length} 筆，其中已定位 ${points.length} 筆。`
+    : `待丈量 ${pendingMeasure.length} 筆、待同步 ${pendingSync.length} 筆；已定位 ${points.length} 筆${filteredRecords.length-points.length?`，尚有 ${filteredRecords.length-points.length} 筆未定位`:''}。`;
+  canvas.style.display='block';
+  emptyEl.style.display='none';
+  emptyEl.innerHTML=kw
+    ? `目前沒有符合搜尋且可定位的案件。<br>請調整搜尋條件，或清空搜尋框查看全部案件。`
+    : `目前沒有可定位的案件。<br>請先同步含 GPS 座標的資料。`;
+  try{ await ensureGoogleMaps(); }
+  catch(e){
+    canvas.style.display='none';
+    emptyEl.style.display='block';
+    emptyEl.innerHTML=`⚠️ 地圖載入失敗。<br>${esc(e.message)}`;
+    return;
+  }
+  if(!measureMap){
+    measureMap=new google.maps.Map(canvas,{center:points.length?{lat:+points[0].lat,lng:+points[0].lng}:{lat:23.6978,lng:120.9605},zoom:points.length?16:7,mapTypeControl:false,streetViewControl:false,fullscreenControl:true});
+    measureMapInfo=new google.maps.InfoWindow();
+  }
+  measureMapMarkers.forEach(m=>m.setMap(null));
+  measureMapMarkers=[];
+  measureMapMarkerMap.clear();
+  if(!points.length){ emptyEl.style.display='block'; return; }
+  const bounds=new google.maps.LatLngBounds();
+  points.forEach(r=>{
+    const pos={lat:+r.lat,lng:+r.lng};
+    bounds.extend(pos);
+    const markerColor=needsAnySync(r)?'#9aa0a6':'#ea4335';
+    const marker=new google.maps.Marker({
+      map:measureMap,
+      position:pos,
+      title:`${r.projectName||''} ${r.trenchNo||''}`.trim(),
+      icon:{path:google.maps.SymbolPath.CIRCLE,scale:8,fillColor:markerColor,fillOpacity:1,strokeColor:'#ffffff',strokeWeight:2}
+    });
+    const html=buildMapInfoHtml(r);
+    marker.addListener('click',()=>{ measureMapInfo.setContent(html); measureMapInfo.open({map:measureMap,anchor:marker}); });
+    measureMapMarkers.push(marker);
+    measureMapMarkerMap.set(String(r.id),marker);
+  });
+  if(points.length===1){ measureMap.setCenter(bounds.getCenter()); measureMap.setZoom(17); }
+  else{ measureMap.fitBounds(bounds,{top:50,right:50,bottom:50,left:50}); }
+  if(focusMapRecordId){
+    setTimeout(()=>{
+      if(measureMapMarkerMap.has(String(focusMapRecordId))) focusMapRecordById(String(focusMapRecordId));
+      else toast('此案件目前不會顯示在丈量地圖上');
+      focusMapRecordId=null;
+    },160);
+  }
+  setTimeout(()=>{ if(window.google&&measureMap) google.maps.event.trigger(measureMap,'resize'); },100);
+}
+
+function openAdd(prefill=null){
+  rememberListScroll();
+  if(!prefill){ toast('此版本請先從受理名冊同步案件'); return; }
+  document.getElementById('add-title').textContent=(prefill&&prefill.id)?'填寫丈量資料':'新增丈量紀錄';
+  document.getElementById('f-eid').value='';
+  document.getElementById('add-del-btn').style.display='none';
+  refreshMeasureCacheButton();
+  ['f-project','f-trench','f-addr','f-lotlen','f-ditchwid','f-stripe','f-len','f-road','f-plen','f-pwid','f-note','f-lat','f-lng'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('f-date').value=new Date().toISOString().slice(0,10);
+  document.getElementById('gps-display').textContent='尚未取得';
+  editPhotos=[];
+  if(prefill){
+    const r=normalizeLocalRecord(prefill);
+    document.getElementById('f-project').value=r.projectName||'';
+    document.getElementById('f-trench').value=r.trenchNo||'';
+    document.getElementById('f-addr').value=r.address||'';
+    document.getElementById('f-date').value=(r.measuredAt||new Date().toISOString().slice(0,10)).slice(0,10);
+    document.getElementById('f-lotlen').value=measureFieldPrefillValue(r.lotLenM, r.status);
+    document.getElementById('f-ditchwid').value=measureFieldPrefillValue(r.ditchWidM, r.status);
+    document.getElementById('f-stripe').value=measureFieldPrefillValue(r.stripeLenM, r.status);
+    document.getElementById('f-len').value=measureFieldPrefillValue(r.lengthM, r.status);
+    document.getElementById('f-road').value=measureFieldPrefillValue(r.roadWidthLenM, r.status);
+    document.getElementById('f-plen').value=measureFieldPrefillValue(r.paveLenM, r.status);
+    document.getElementById('f-pwid').value=measureFieldPrefillValue(r.paveWidM, r.status);
+    document.getElementById('f-note').value=r.note||'';
+    applyGps(r.lat,r.lng);
+    document.getElementById('f-eid').value=r.id||'';
+    editPhotos=normalizePhotos(r.photos).map(p=>({...p}));
+    if(r.id) document.getElementById('add-del-btn').style.display='flex';
+  }
+  renderPhotoGrid();
+  gotoPage('page-add');
+}
+async function editRecord(){
+  const r=await getRecLocal(curDetailId); if(!r) return;
+  openAdd(r);
+  document.getElementById('add-title').textContent='編輯丈量紀錄';
+}
+async function saveRecord(){
+  const btn=document.querySelector('#page-add .sbar .btn');
+  const proj=document.getElementById('f-project').value.trim();
+  const trench=document.getElementById('f-trench').value.trim();
+  if(!proj||!trench){ toast('請填寫用戶名與水號'); return; }
+  if(btn) btn.disabled=true;
+  try{
+    const eid=document.getElementById('f-eid').value.trim();
+    const old=eid?await getRecLocal(eid):null;
+    const now=new Date().toISOString();
+    const lat=document.getElementById('f-lat').value?+document.getElementById('f-lat').value:null;
+    const lng=document.getElementById('f-lng').value?+document.getElementById('f-lng').value:null;
+    let rec=normalizeLocalRecord({
+      ...old,
+      id:eid||crypto.randomUUID(),
+      projectName:proj,
+      trenchNo:trench,
+      address:document.getElementById('f-addr').value.trim(),
+      measuredAt:document.getElementById('f-date').value||new Date().toISOString().slice(0,10),
+      lotLenM:toNullableNumber(document.getElementById('f-lotlen').value),
+      ditchWidM:toNullableNumber(document.getElementById('f-ditchwid').value),
+      stripeLenM:toNullableNumber(document.getElementById('f-stripe').value),
+      lengthM:toNullableNumber(document.getElementById('f-len').value),
+      roadWidthLenM:toNullableNumber(document.getElementById('f-road').value),
+      paveLenM:toNullableNumber(document.getElementById('f-plen').value),
+      paveWidM:toNullableNumber(document.getElementById('f-pwid').value),
+      gpsText:(old&&old.gpsText)||gpsToTwd97Text(lat,lng)||'',
+      lat,lng,
+      note:document.getElementById('f-note').value.trim(),
+      photos:normalizePhotos(editPhotos),
+      status:(document.getElementById('f-date').value||new Date().toISOString().slice(0,10))?'done':'pending',
+      createdAt:old?.createdAt||now,
+      updatedAt:now,
+      deleted:false,
+      deletedAt:'',
+      dataSyncStatus:'pending',
+      photoSyncStatus:normalizePhotos(editPhotos).length?'pending':'none',
+      syncAction:'upsert',
+    });
+
+    saveMeasureCacheFromRecord(rec);
+    refreshMeasureCacheButton();
+    await putRecLocal(rec);
+
+    await renderList();
+    returnToListPage();
+    renderSyncUi();
+    toast('已儲存到本機，請手動按「同步」送出資料與照片');
+  }catch(e){
+    toast('儲存失敗：'+shortErr(e));
+  }finally{ if(btn) btn.disabled=false; }
+}
+function fmtGps(lat,lng){
+  return isValidGps(lat,lng)?`${(+lat).toFixed(6)}, ${(+lng).toFixed(6)}`:'尚未取得';
+}
+function applyGps(lat,lng){
+  document.getElementById('f-lat').value=(lat!=null&&lat!=='')?+lat:'';
+  document.getElementById('f-lng').value=(lng!=null&&lng!=='')?+lng:'';
+  document.getElementById('gps-display').textContent=fmtGps(lat,lng);
+}
+function parseTwd97Coord(text){
+  const s=String(text||'').trim();
+  if(!s) return null;
+  const parts=s.split(/[\s,，]+/).map(v=>v.trim()).filter(Boolean);
+  if(parts.length<2) return null;
+  const x=parseFloat(parts[0]);
+  const y=parseFloat(parts[1]);
+  if(!isFinite(x)||!isFinite(y)) return null;
+  return {x,y};
+}
+function twd97ToWgs84(x,y){
+  const a=6378137.0,b=6356752.314245,lon0=121*Math.PI/180,k0=0.9999,dx=250000,dy=0;
+  const e=Math.sqrt(1-(b*b)/(a*a));
+  x-=dx;y-=dy;
+  const M=y/k0;
+  const mu=M/(a*(1-(e*e)/4-3*Math.pow(e,4)/64-5*Math.pow(e,6)/256));
+  const e1=(1-Math.sqrt(1-e*e))/(1+Math.sqrt(1-e*e));
+  const J1=3*e1/2-27*Math.pow(e1,3)/32;
+  const J2=21*Math.pow(e1,2)/16-55*Math.pow(e1,4)/32;
+  const J3=151*Math.pow(e1,3)/96;
+  const J4=1097*Math.pow(e1,4)/512;
+  const fp=mu+J1*Math.sin(2*mu)+J2*Math.sin(4*mu)+J3*Math.sin(6*mu)+J4*Math.sin(8*mu);
+  const e2=Math.pow(e*a/b,2),C1=e2*Math.pow(Math.cos(fp),2),T1=Math.pow(Math.tan(fp),2);
+  const R1=a*(1-e*e)/Math.pow(1-e*e*Math.pow(Math.sin(fp),2),1.5);
+  const N1=a/Math.sqrt(1-e*e*Math.pow(Math.sin(fp),2));
+  const D=x/(N1*k0);
+  const Q1=N1*Math.tan(fp)/R1,Q2=(D*D)/2,Q3=(5+3*T1+10*C1-4*C1*C1-9*e2)*Math.pow(D,4)/24,Q4=(61+90*T1+298*C1+45*T1*T1-252*e2-3*C1*C1)*Math.pow(D,6)/720;
+  const lat=fp-Q1*(Q2-Q3+Q4);
+  const Q5=D,Q6=(1+2*T1+C1)*Math.pow(D,3)/6,Q7=(5-2*C1+28*T1-3*C1*C1+8*e2+24*T1*T1)*Math.pow(D,5)/120;
+  const lng=lon0+(Q5-Q6+Q7)/Math.cos(fp);
+  return {lat:lat*180/Math.PI,lng:lng*180/Math.PI};
+}
+function convertTwd97TextToGps(text){
+  const p=parseTwd97Coord(text);
+  if(!p) return {lat:null,lng:null};
+  const g=twd97ToWgs84(p.x,p.y);
+  return {lat:+g.lat.toFixed(6),lng:+g.lng.toFixed(6)};
+}
+function wgs84ToTwd97(lat,lng){
+  const a=6378137.0,b=6356752.314245,lon0=121*Math.PI/180,k0=0.9999,dx=250000;
+  const e=Math.sqrt(1-(b*b)/(a*a)),e2=(e*e)/(1-e*e);
+  const latRad=lat*Math.PI/180,lngRad=lng*Math.PI/180;
+  const N=a/Math.sqrt(1-e*e*Math.pow(Math.sin(latRad),2));
+  const T=Math.pow(Math.tan(latRad),2),C=e2*Math.pow(Math.cos(latRad),2),A=Math.cos(latRad)*(lngRad-lon0);
+  const M=a*((1-e*e/4-3*Math.pow(e,4)/64-5*Math.pow(e,6)/256)*latRad-(3*e*e/8+3*Math.pow(e,4)/32+45*Math.pow(e,6)/1024)*Math.sin(2*latRad)+(15*Math.pow(e,4)/256+45*Math.pow(e,6)/1024)*Math.sin(4*latRad)-(35*Math.pow(e,6)/3072)*Math.sin(6*latRad));
+  const x=dx+k0*N*(A+(1-T+C)*Math.pow(A,3)/6+(5-18*T+T*T+72*C-58*e2)*Math.pow(A,5)/120);
+  const y=k0*(M+N*Math.tan(latRad)*(A*A/2+(5-T+9*C+4*C*C)*Math.pow(A,4)/24+(61-58*T+T*T+600*C-330*e2)*Math.pow(A,6)/720));
+  return {x:+x.toFixed(6),y:+y.toFixed(6)};
+}
+function gpsToTwd97Text(lat,lng){
+  if(!isValidGps(lat,lng)) return '';
+  const p=wgs84ToTwd97(+lat,+lng);
+  return `${p.x.toFixed(6)},${p.y.toFixed(6)}`;
+}
+
+function trigCam(){ document.getElementById('fc').click(); }
+function trigGal(){ document.getElementById('fg').click(); }
+async function handlePics(inp){
+  const files=Array.from(inp.files||[]);
+  if(!files.length) return;
+  toast('壓縮中，請稍候…');
+  for(const f of files){
+    const data=await compressImg(f);
+    if(data){
+      editPhotos.push(normalizePhotoItem({
+        kind:'local',
+        previewData:data,
+        mimeType:detectMimeFromDataUrl(data),
+        name:f.name||'',
+        uploadState:'local',
+      }));
+    }
+  }
+  inp.value='';
+  renderPhotoGrid();
+  toast(`已加入 ${files.length} 張照片`);
+}
+function renderPhotoGrid(){
+  document.getElementById('pgrid').innerHTML=editPhotos.map((raw,i)=>{
+    const p=normalizePhotoItem(raw);
+    const src=getPhotoPreviewSrc(p);
+    const status=getPhotoStatusLabel(p);
+    const driveBtn=isDrivePhoto(p)&&getPhotoOpenUrl(p)?`<button class="pdel" style="right:30px;background:rgba(88,166,255,.85)" onclick="event.stopPropagation();openPhotoDrive('edit',${i})">☁️</button>`:'';
+    return `
+      <div class="pthumb">
+        ${src?`<img src="${escAttr(src)}" loading="lazy" onclick="openPhotoPreview('edit',${i})">`:`<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:12px;color:var(--text2)">無預覽</div>`}
+        <div style="position:absolute;left:4px;bottom:4px;background:rgba(0,0,0,.7);color:#fff;font-size:10px;border-radius:10px;padding:2px 6px">${esc(status)}</div>
+        ${driveBtn}
+        <button class="pdel" onclick="rmPhoto(${i})">✕</button>
+      </div>`;
+  }).join('');
+}
+function rmPhoto(i){
+  const photo=normalizePhotoItem(editPhotos[i]);
+  if(isDrivePhoto(photo)) toast('已從本地紀錄移除；Google Drive 上的原檔不會自動刪除');
+  editPhotos.splice(i,1);
+  renderPhotoGrid();
+}
+
+async function openDetail(id){
+  rememberListScroll();
+  curDetailId=id;
+  const r=await getRecLocal(id); if(!r||r.deleted) return;
+  if(r.status==='pending'){ openAdd(r); return; }
+  document.getElementById('d-proj').textContent=r.projectName||'';
+  document.getElementById('d-no').textContent='水號：'+(r.trenchNo||'');
+  document.getElementById('d-addr').textContent=r.address?'📍 '+r.address:'';
+  document.getElementById('d-date').textContent='丈量日期：'+(r.measuredAt?String(r.measuredAt).slice(0,10):'—');
+  document.getElementById('d-lotlen').textContent=numTextOrDash(r.lotLenM);
+  document.getElementById('d-ditchwid').textContent=numTextOrDash(r.ditchWidM);
+  document.getElementById('d-stripe').textContent=numTextOrDash(r.stripeLenM);
+  document.getElementById('d-len').textContent=numTextOrDash(r.lengthM);
+  document.getElementById('d-road').textContent=numTextOrDash(r.roadWidthLenM);
+  document.getElementById('d-plen').textContent=numTextOrDash(r.paveLenM);
+  document.getElementById('d-pwid').textContent=numTextOrDash(r.paveWidM);
+  document.getElementById('d-gps').textContent=isValidGps(r.lat,r.lng)?fmtGps(r.lat,r.lng):(r.gpsText||'未記錄');
+  document.getElementById('d-note').textContent=r.note||'（無）';
+  const photos=normalizePhotos(r.photos);
+  curDetailPhotos=photos;
+  document.getElementById('d-nopic').style.display=photos.length?'none':'block';
+  document.getElementById('d-photos').innerHTML=photos.map((raw,i)=>{
+    const photo=normalizePhotoItem(raw);
+    const src=getPhotoPreviewSrc(photo);
+    const driveBtn=isDrivePhoto(photo)&&getPhotoOpenUrl(photo)?`<button class="pdel" style="right:4px;background:rgba(88,166,255,.85)" onclick="event.stopPropagation();openPhotoDrive('detail',${i})">☁️</button>`:'';
+    return `<div class="pthumb">${src?`<img src="${escAttr(src)}" loading="lazy" onclick="openPhotoPreview('detail',${i})">`:`<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:12px;color:var(--text2)">無預覽</div>`}<div style="position:absolute;left:4px;bottom:4px;background:rgba(0,0,0,.7);color:#fff;font-size:10px;border-radius:10px;padding:2px 6px">${esc(getPhotoStatusLabel(photo))}</div>${driveBtn}</div>`;
+  }).join('');
+  gotoPage('page-detail');
+}
+function askDelete(){ curDelId=curDetailId; document.getElementById('cmod').classList.add('open'); }
+function askDeleteFromAdd(){
+  const id=(document.getElementById('f-eid').value||'').trim();
+  if(!id){ toast('尚無可刪除的紀錄'); return; }
+  curDelId=id;
+  document.getElementById('cmod').classList.add('open');
+}
+function closeModal(){ document.getElementById('cmod').classList.remove('open'); }
+
+async function confirmDelete(){
+  closeModal();
+  if(!curDelId) return;
+  const old=await getRecLocal(curDelId);
+  if(!old){ toast('找不到紀錄'); return; }
+  const deletedLocalRecord=normalizeLocalRecord({
+    ...old,
+    deleted:true,
+    deletedAt:new Date().toISOString(),
+    updatedAt:new Date().toISOString(),
+    syncAction:'',
+  },{dataSyncStatus:old&&old.dataSyncStatus||'synced',photoSyncStatus:old&&old.photoSyncStatus||inferPhotoSyncStatus(old)});
+  await putRecLocal(deletedLocalRecord);
+  if(measureMapInfo) measureMapInfo.close();
+  await renderList();
+  returnToListPage();
+  renderSyncUi();
+  toast('已刪除本機案件，後續同步不會送出這筆刪除資訊');
+}
+
+function showImg(src){ document.getElementById('pov-img').src=src; document.getElementById('pov').classList.add('open'); }
+function closePov(){ document.getElementById('pov').classList.remove('open'); document.getElementById('pov-img').src=''; }
+
+function normalizeLocalRecord(input, extras={}){
+  input=input||{};
+  const photos=normalizePhotos(input.photos);
+  let gpsText=String(input.gpsText||input.gps||'').trim();
+  let lat=toNullableNumber(input.lat);
+  let lng=toNullableNumber(input.lng);
+  if((lat==null||lng==null) && gpsText){
+    const direct=parseLatLngText(gpsText);
+    if(direct){ lat=direct.lat; lng=direct.lng; }
+    else{
+      const tw=convertTwd97TextToGps(gpsText);
+      if(isValidGps(tw.lat,tw.lng)){ lat=tw.lat; lng=tw.lng; }
+    }
+  }
+  const dataSyncStatus=extras.dataSyncStatus!=null ? normalizeDataSyncStatus(extras.dataSyncStatus) : inferDataSyncStatus(input);
+  const photoSyncStatus=extras.photoSyncStatus!=null ? normalizePhotoSyncStatus(extras.photoSyncStatus) : inferPhotoSyncStatus(input, photos);
+  return {
+    id:String(input.id||'').trim(),
+    projectName:String(input.projectName||'').trim(),
+    actionCode:String(input.actionCode||'').trim(),
+    trenchNo:String(input.trenchNo||'').trim(),
+    address:String(input.address||'').trim(),
+    meterLocation:String(input.meterLocation||'').trim(),
+    measuredAt:String(input.measuredAt||'').trim(),
+    lotLenM:toNullableNumber(input.lotLenM),
+    ditchWidM:toNullableNumber(input.ditchWidM),
+    lengthM:toNullableNumber(input.lengthM),
+    widthM:toNumber(input.widthM),
+    depthM:toNumber(input.depthM),
+    stripeLenM:toNullableNumber(input.stripeLenM),
+    roadWidthLenM:toNullableNumber(input.roadWidthLenM),
+    areaM2:toNumber(input.areaM2),
+    volumeM3:toNumber(input.volumeM3),
+    paveLenM:toNullableNumber(input.paveLenM),
+    paveWidM:toNullableNumber(input.paveWidM),
+    paveM2:toNumber(input.paveM2),
+    gpsText:gpsText,
+    lat:lat,
+    lng:lng,
+    note:String(input.note||'').trim(),
+    photos:photos,
+    driveRecordFolderId:String(input.driveRecordFolderId||'').trim(),
+    driveRecordFolderName:String(input.driveRecordFolderName||'').trim(),
+    status:String(input.status||(input.measuredAt?'done':'pending')).trim()||'pending',
+    deleted:toBoolean(input.deleted),
+    sourceSheet:String(input.sourceSheet||'受理名冊').trim(),
+    sourceRow:input.sourceRow==null||input.sourceRow===''?'':Number(input.sourceRow),
+    sourceKey:String(input.sourceKey||'').trim(),
+    createdAt:String(input.createdAt||'').trim(),
+    updatedAt:String(input.updatedAt||'').trim(),
+    deletedAt:String(input.deletedAt||'').trim(),
+    dataSyncStatus:dataSyncStatus||'synced',
+    photoSyncStatus:photoSyncStatus||'none',
+    syncAction:extras.syncAction!=null?String(extras.syncAction).trim():String(input.syncAction||'').trim(),
+  };
+}
+function normalizePhotoItem(item){
+  if(!item) return null;
+  if(typeof item==='string'){
+    const s=item.trim();
+    if(!s) return null;
+    if(/^data:image\//i.test(s)){
+      return {kind:'local',previewData:s,name:'',mimeType:detectMimeFromDataUrl(s),fileId:'',webViewLink:'',webContentLink:'',thumbnailLink:'',uploadedAt:'',uploadState:'local',lastError:''};
+    }
+    return {kind:'drive',previewData:'',name:'',mimeType:'',fileId:'',webViewLink:s,webContentLink:'',thumbnailLink:'',uploadedAt:'',uploadState:'uploaded',lastError:''};
+  }
+  if(typeof item==='object'){
+    const previewData=String(item.previewData||item.data||item.dataUrl||'').trim();
+    const fileId=String(item.fileId||item.id||'').trim();
+    const kind=(item.kind==='drive'||fileId||item.webViewLink||item.webContentLink)?'drive':'local';
+    return {
+      kind,
+      previewData,
+      name:String(item.name||'').trim(),
+      mimeType:String(item.mimeType||detectMimeFromDataUrl(previewData)||'image/jpeg').trim(),
+      fileId,
+      webViewLink:String(item.webViewLink||item.url||'').trim(),
+      webContentLink:String(item.webContentLink||'').trim(),
+      thumbnailLink:String(item.thumbnailLink||'').trim(),
+      uploadedAt:String(item.uploadedAt||'').trim(),
+      uploadState:String(item.uploadState||(kind==='drive'?'uploaded':'local')).trim()||'local',
+      lastError:String(item.lastError||'').trim(),
+    };
+  }
+  return null;
+}
+function normalizePhotos(photos){
+  if(!photos) return [];
+  const arr=Array.isArray(photos)?photos:[photos];
+  return arr.map(normalizePhotoItem).filter(Boolean);
+}
+function parseLatLngText(text){
+  const parts=String(text||'').trim().split(/[,，\s]+/).filter(Boolean);
+  if(parts.length<2) return null;
+  const a=Number(parts[0]), b=Number(parts[1]);
+  if(isFinite(a)&&isFinite(b)&&Math.abs(a)<=90&&Math.abs(b)<=180) return {lat:a,lng:b};
+  return null;
+}
+function toRemoteRecord(rec){
+  return {
+    id:rec.id,
+    projectName:rec.projectName,
+    actionCode:rec.actionCode,
+    trenchNo:rec.trenchNo,
+    address:rec.address,
+    meterLocation:rec.meterLocation,
+    measuredAt:rec.measuredAt,
+    lotLenM:rec.lotLenM,
+    ditchWidM:rec.ditchWidM,
+    lengthM:rec.lengthM,
+    widthM:rec.widthM||0,
+    depthM:rec.depthM||0,
+    stripeLenM:rec.stripeLenM,
+    roadWidthLenM:rec.roadWidthLenM||0,
+    areaM2:rec.areaM2||0,
+    volumeM3:rec.volumeM3||0,
+    paveLenM:rec.paveLenM,
+    paveWidM:rec.paveWidM,
+    paveM2:rec.paveM2||0,
+    gpsText:rec.gpsText||gpsToTwd97Text(rec.lat,rec.lng)||'',
+    lat:rec.lat,
+    lng:rec.lng,
+    note:rec.note,
+    photos:[],
+    status:rec.status,
+    deleted:rec.deleted,
+    sourceSheet:rec.sourceSheet,
+    sourceRow:rec.sourceRow,
+    sourceKey:rec.sourceKey,
+    createdAt:rec.createdAt,
+    updatedAt:rec.updatedAt,
+    deletedAt:rec.deletedAt,
+  };
+}
+function normalizeSourceRowForMatch(row){
+  const n=Number(row||0);
+  return Number.isFinite(n) && n>0 ? n : 0;
+}
+function sameCaseFirstLayer(a,b){
+  const aTrench=String(a&&a.trenchNo||'').trim();
+  const bTrench=String(b&&b.trenchNo||'').trim();
+  if(!aTrench || !bTrench || aTrench!==bTrench) return false;
+  const aRow=normalizeSourceRowForMatch(a&&a.sourceRow);
+  const bRow=normalizeSourceRowForMatch(b&&b.sourceRow);
+  return !!aRow && !!bRow && aRow===bRow;
+}
+function sameCaseSecondLayer(a,b){
+  const aTrench=String(a&&a.trenchNo||'').trim();
+  const bTrench=String(b&&b.trenchNo||'').trim();
+  if(!aTrench || !bTrench || aTrench!==bTrench) return false;
+
+  const aName=String(a&&a.projectName||'').trim();
+  const bName=String(b&&b.projectName||'').trim();
+  if(aName && bName && aName!==bName) return false;
+
+  const aAddr=String(a&&a.address||'').trim();
+  const bAddr=String(b&&b.address||'').trim();
+  if(aAddr && bAddr && aAddr!==bAddr) return false;
+
+  const aAction=String(a&&a.actionCode||'').trim();
+  const bAction=String(b&&b.actionCode||'').trim();
+  if(aAction && bAction && aAction!==bAction) return false;
+
+  return true;
+}
+function sameCaseBySyncRules(a,b){
+  if(sameCaseFirstLayer(a,b)) return true;
+  const aTrench=String(a&&a.trenchNo||'').trim();
+  const bTrench=String(b&&b.trenchNo||'').trim();
+  if(!aTrench || !bTrench || aTrench!==bTrench) return false;
+  return sameCaseSecondLayer(a,b);
+}
+async function syncRecordTextToRemote(rec,{showToast=false}={}){
+  try{
+    const syncingRecord=normalizeLocalRecord(rec,{dataSyncStatus:'syncing'});
+    await putRecLocal(syncingRecord);
+    const request={record:toRemoteRecord(syncingRecord)};
+    const remote=await apiPost('upsertMeasurement',request);
+    const sameCase=sameCaseBySyncRules(syncingRecord, remote);
+    const merged=normalizeLocalRecord({
+      ...(sameCase ? syncingRecord : {}),
+      ...remote,
+      photos:syncingRecord.photos,
+      driveRecordFolderId:syncingRecord.driveRecordFolderId,
+      driveRecordFolderName:syncingRecord.driveRecordFolderName,
+    },{dataSyncStatus:'synced',photoSyncStatus:syncingRecord.photoSyncStatus,syncAction:''});
+    await putRecLocal(merged);
+    if(sameCase && syncingRecord.id && merged.id && syncingRecord.id!==merged.id){
+      await deleteRecLocal(syncingRecord.id);
+    }
+    lastSyncAt=new Date().toISOString();
+    renderSyncUi();
+    await renderList();
+    if(showToast) toast('文字同步完成');
+    return merged;
+  }catch(e){
+    const errored=normalizeLocalRecord(rec,{dataSyncStatus:'error',syncAction:normalizeLocalRecord(rec).syncAction||''});
+    await putRecLocal(errored);
+    renderSyncUi();
+    await renderList();
+    throw e;
+  }
+}
+function recordKeys(rec){
+  const keys=[];
+  const trench=String(rec&&rec.trenchNo||'').trim();
+  const row=normalizeSourceRowForMatch(rec&&rec.sourceRow);
+  if(trench && row) keys.push(`row:${trench}|${row}`);
+  if(trench){
+    const name=String(rec&&rec.projectName||'').trim();
+    const addr=String(rec&&rec.address||'').trim();
+    const action=String(rec&&rec.actionCode||'').trim();
+    keys.push(`stable:${trench}|${name}|${addr}|${action}`);
+  }
+  return [...new Set(keys.filter(Boolean))];
+}
+function recordsMatch(a,b){
+  return sameCaseBySyncRules(a,b);
+}
+function isLocalPreferred(local,remote){
+  if(local.deleted) return false;
+  if(!remote) return true;
+  if(needsAnySync(local)){
+    if(!remote.updatedAt) return true;
+    if(local.updatedAt && local.updatedAt>=remote.updatedAt) return true;
+  }
+  return false;
+}
+function mergeRemoteWithLocal(remoteRecords,localRecords){
+  const final=[...remoteRecords.map(r=>normalizeLocalRecord(r,{dataSyncStatus:r.dataSyncStatus||'synced',photoSyncStatus:r.photoSyncStatus||inferPhotoSyncStatus(r)}))];
+  for(const local of localRecords){
+    const idx=final.findIndex(r=>recordsMatch(r,local));
+    if(local.deleted){
+      continue;
+    }
+    if(idx<0){
+      if(needsAnySync(local) || normalizePhotos(local.photos).length) final.push(local);
+      continue;
+    }
+    const localPhotos=normalizePhotos(local.photos);
+    const remotePhotos=normalizePhotos(final[idx].photos);
+    if(!remotePhotos.length && localPhotos.length){
+      final[idx]=normalizeLocalRecord({
+        ...final[idx],
+        photos:local.photos,
+        driveRecordFolderId:final[idx].driveRecordFolderId||local.driveRecordFolderId||'',
+        driveRecordFolderName:final[idx].driveRecordFolderName||local.driveRecordFolderName||''
+      },{
+        dataSyncStatus:final[idx].dataSyncStatus||'synced',
+        photoSyncStatus:local.photoSyncStatus||inferPhotoSyncStatus(local)
+      });
+    }else if(!final[idx].driveRecordFolderId && local.driveRecordFolderId){
+      final[idx]=normalizeLocalRecord({
+        ...final[idx],
+        driveRecordFolderId:local.driveRecordFolderId,
+        driveRecordFolderName:local.driveRecordFolderName||final[idx].driveRecordFolderName||''
+      },{
+        dataSyncStatus:final[idx].dataSyncStatus||'synced',
+        photoSyncStatus:final[idx].photoSyncStatus||inferPhotoSyncStatus(final[idx])
+      });
+    }
+    if(isLocalPreferred(local,final[idx])) final[idx]=normalizeLocalRecord(local);
+  }
+  return dedupeRecords(final);
+}
+function dedupeRecords(records){
+  const out=[];
+  records.forEach(rec=>{
+    const idx=out.findIndex(x=>recordsMatch(x,rec));
+    if(idx<0) out.push(normalizeLocalRecord(rec));
+    else{
+      const current=out[idx];
+      const chosen=isLocalPreferred(rec,current)?rec:current;
+      const carryPhotos=normalizePhotos(chosen.photos).length?chosen.photos:(normalizePhotos(rec.photos).length?rec.photos:current.photos);
+      const carryDriveFolderId=String(chosen.driveRecordFolderId||rec.driveRecordFolderId||current.driveRecordFolderId||'').trim();
+      const carryDriveFolderName=String(chosen.driveRecordFolderName||rec.driveRecordFolderName||current.driveRecordFolderName||'').trim();
+      const carryDataStatus=normalizeDataSyncStatus(chosen.dataSyncStatus)||normalizeDataSyncStatus(rec.dataSyncStatus)||normalizeDataSyncStatus(current.dataSyncStatus)||'synced';
+      const carryPhotoStatus=normalizePhotoSyncStatus(chosen.photoSyncStatus)||inferPhotoSyncStatus({photos:carryPhotos});
+      out[idx]=normalizeLocalRecord({
+        ...chosen,
+        photos:carryPhotos,
+        driveRecordFolderId:carryDriveFolderId,
+        driveRecordFolderName:carryDriveFolderName
+      },{
+        dataSyncStatus:carryDataStatus,
+        photoSyncStatus:carryPhotoStatus
+      });
+    }
+  });
+  return sortRecords(out);
+}
+function sortRecords(records){
+  return [...records].sort((a,b)=>{
+    if(!!a.deleted!==!!b.deleted) return a.deleted?1:-1;
+    if((a.status==='pending')!==(b.status==='pending')) return a.status==='pending'?-1:1;
+    const av=String(a.measuredAt||a.updatedAt||a.createdAt||'');
+    const bv=String(b.measuredAt||b.updatedAt||b.createdAt||'');
+    return bv.localeCompare(av);
+  });
+}
+function hasLocalPendingPhotos(rec){
+  return normalizePhotos(rec&&rec.photos).some(photo=>!isDrivePhoto(photo) && !!photo.previewData);
+}
+function getFinalPhotoStatusFromRecord(rec){
+  const photos=normalizePhotos(rec&&rec.photos);
+  if(!photos.length) return 'none';
+  if(photos.some(photo=>String(photo&&photo.uploadState||'').trim()==='error')) return 'error';
+  if(photos.some(photo=>!isDrivePhoto(photo) && !!photo.previewData)) return 'pending';
+  return 'synced';
+}
+async function syncPendingTextRecords(){
+  const localRecords=await getAllLocal();
+  const queue=sortRecords(localRecords.filter(r=>!r.deleted && r.syncAction!=='deleteMeasurement' && needsDataSync(r)));
+  const result={synced:0,errors:0};
+  for(const original of queue){
+    const rec=normalizeLocalRecord(original);
+    try{
+      await syncRecordTextToRemote(rec);
+      result.synced++;
+    }catch(e){
+      result.errors++;
+      await putRecLocal(normalizeLocalRecord(original,{dataSyncStatus:'error',syncAction:normalizeLocalRecord(original).syncAction||'upsert'}));
+    }
+  }
+  if(result.synced>0) lastSyncAt=new Date().toISOString();
+  renderSyncUi();
+  return result;
+}
+async function syncPendingPhotoRecords(){
+  const localRecords=await getAllLocal();
+  const queue=sortRecords(localRecords.filter(r=>!r.deleted && (normalizePhotos(r.photos).length || r.driveRecordFolderId || needsPhotoSync(r))));
+  const result={syncedRecords:0,uploadedPhotos:0,errors:0,keptLocalPhotos:0,clearedMissingDrivePhotos:0,noDriveRecords:0};
+
+  if(!hasDriveConfig()){
+    for(const rec of queue){
+      if(!hasLocalPendingPhotos(rec)) continue;
+      const next=normalizeLocalRecord({...rec,updatedAt:new Date().toISOString()},{photoSyncStatus:'no_drive',syncAction:rec.syncAction||''});
+      await putRecLocal(next);
+      result.noDriveRecords++;
+      result.keptLocalPhotos+=normalizePhotos(rec.photos).filter(photo=>!isDrivePhoto(photo) && !!photo.previewData).length;
+    }
+    if(result.noDriveRecords>0){
+      await renderList();
+      renderSyncUi();
+    }
+    return result;
+  }
+
+  for(const original of queue){
+    let rec=normalizeLocalRecord(original);
+    try{
+      rec=normalizeLocalRecord({...rec,updatedAt:new Date().toISOString()},{photoSyncStatus:'syncing',syncAction:rec.syncAction||''});
+      await putRecLocal(rec);
+
+      const reconciled=await reconcileRecordPhotosAgainstDrive(rec);
+      if(reconciled.removedStaleCount){
+        result.clearedMissingDrivePhotos+=reconciled.removedStaleCount;
+      }
+      rec=normalizeLocalRecord({
+        ...rec,
+        photos:reconciled.photos,
+        driveRecordFolderId:reconciled.folderId!=null?reconciled.folderId:(rec.driveRecordFolderId||''),
+        driveRecordFolderName:reconciled.folderName!=null?reconciled.folderName:(rec.driveRecordFolderName||''),
+        updatedAt:new Date().toISOString()
+      },{photoSyncStatus:getFinalPhotoStatusFromRecord({...rec,photos:reconciled.photos}),syncAction:rec.syncAction||''});
+      await putRecLocal(rec);
+
+      if(reconciled.pendingPhotos.length){
+        const uploadResult=await uploadPendingPhotosToDriveFolder(reconciled.pendingPhotos, rec, rec.driveRecordFolderId||'');
+        result.uploadedPhotos+=uploadResult.uploadedCount;
+        const finalPhotos=[...reconciled.drivePhotos, ...uploadResult.photos];
+        const finalStatus=uploadResult.failedCount>0 ? 'error' : getFinalPhotoStatusFromRecord({photos:finalPhotos});
+        rec=normalizeLocalRecord({
+          ...rec,
+          photos:finalPhotos,
+          driveRecordFolderId:uploadResult.folderId||rec.driveRecordFolderId||'',
+          driveRecordFolderName:uploadResult.folderName||rec.driveRecordFolderName||'',
+          updatedAt:new Date().toISOString()
+        },{photoSyncStatus:finalStatus,syncAction:rec.syncAction||''});
+        await putRecLocal(rec);
+        if(uploadResult.failedCount>0) result.errors++;
+      }else{
+        const finalStatus=getFinalPhotoStatusFromRecord(rec);
+        rec=normalizeLocalRecord(rec,{photoSyncStatus:finalStatus,syncAction:rec.syncAction||''});
+        await putRecLocal(rec);
+      }
+
+      if(rec.photoSyncStatus==='synced' || rec.photoSyncStatus==='none') result.syncedRecords++;
+      await renderList();
+    }catch(e){
+      result.errors++;
+      const errored=normalizeLocalRecord(original,{photoSyncStatus:'error',syncAction:normalizeLocalRecord(original).syncAction||''});
+      await putRecLocal(errored);
+    }
+  }
+  if(result.syncedRecords>0 || result.uploadedPhotos>0) lastSyncAt=new Date().toISOString();
+  renderSyncUi();
+  await renderList();
+  return result;
+}
+async function syncFromRemote({silent=false,forceToast=false}={}){
+  if(!hasApiConfig()){
+    renderSyncUi();
+    if(forceToast) toast('請先設定 Apps Script Web App URL');
+    return false;
+  }
+  if(isSyncing) return false;
+  isSyncing=true;
+  renderSyncUi();
+  updateSyncCaption('同步中…');
+  try{
+    const data=await apiGet('bootstrap');
+    const remoteRecords=(data.records||[]).map(rec=>normalizeLocalRecord(rec,{dataSyncStatus:'synced',photoSyncStatus:rec.photoSyncStatus||inferPhotoSyncStatus(rec)}));
+    const localRecords=await getAllLocal();
+    const merged=mergeRemoteWithLocal(remoteRecords,localRecords);
+    await replaceLocalRecords(merged);
+    lastSyncAt=new Date().toISOString();
+    lastRegistryInfo=data;
+    renderSyncUi();
+    await renderList();
+    if(forceToast) toast('同步完成');
+    return true;
+  }catch(e){
+    updateSyncCaption('同步失敗');
+    renderSyncUi();
+    if(!silent||forceToast) toast('同步失敗：'+shortErr(e));
+    return false;
+  }finally{
+    isSyncing=false;
+    renderSyncUi();
+  }
+}
+async function syncNow(manual=false){
+  if(!hasApiConfig()){
+    gotoPage('page-sync');
+    if(manual) toast('請先設定 Apps Script Web App URL');
+    return;
+  }
+  if(isSyncing) return;
+  if(manual) toast('同步中…');
+
+  let textResult={synced:0,errors:0};
+  let remoteRefreshOk=true;
+  let photoResult={syncedRecords:0,uploadedPhotos:0,errors:0,keptLocalPhotos:0,clearedMissingDrivePhotos:0,noDriveRecords:0};
+
+  try{
+    textResult=await syncPendingTextRecords();
+    remoteRefreshOk=await syncFromRemote({silent:true,forceToast:false});
+    photoResult=await syncPendingPhotoRecords();
+  }catch(e){
+    if(manual) toast('同步失敗：'+shortErr(e));
+    return;
+  }
+
+  if(manual){
+    const parts=[];
+    if(textResult.synced) parts.push(`文字同步 ${textResult.synced} 筆`);
+    if(textResult.errors) parts.push(`文字失敗 ${textResult.errors} 筆`);
+    if(remoteRefreshOk===false) parts.push('重抓遠端失敗');
+    else if(textResult.synced || photoResult.syncedRecords || photoResult.uploadedPhotos) parts.push('已重抓遠端資料');
+    if(photoResult.uploadedPhotos) parts.push(`照片上傳 ${photoResult.uploadedPhotos} 張`);
+    if(photoResult.syncedRecords) parts.push(`照片完成 ${photoResult.syncedRecords} 筆`);
+    if(photoResult.clearedMissingDrivePhotos) parts.push(`清除失效照片資訊 ${photoResult.clearedMissingDrivePhotos} 張`);
+    if(photoResult.noDriveRecords) parts.push(`未設定 Drive ${photoResult.noDriveRecords} 筆`);
+    if(photoResult.keptLocalPhotos) parts.push(`照片保留本機 ${photoResult.keptLocalPhotos} 張`);
+    if(photoResult.errors) parts.push(`照片失敗 ${photoResult.errors} 筆`);
+    toast(parts.length?`同步完成：${parts.join('，')}`:'目前沒有待同步資料');
+  }
+}
+
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s){ return esc(s).replace(/"/g,'&quot;'); }
+function escJs(s){ return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\n/g,'\\n').replace(/\r/g,''); }
+function toast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.add('show');
+  clearTimeout(_tt); _tt=setTimeout(()=>t.classList.remove('show'),2600);
+}
+function shortErr(e){ return (e&&e.message?e.message:String(e)).replace(/^TypeError:\s*/,''); }
+function toNumber(v){
+  if(v==null||v==='') return 0;
+  const n=Number(String(v).replace(/,/g,'').trim());
+  return isFinite(n)?n:0;
+}
+function toNullableNumber(v){
+  if(v==null||v==='') return null;
+  const n=Number(String(v).replace(/,/g,'').trim());
+  return isFinite(n)?n:null;
+}
+function hasExplicitNumber(v){
+  return v!==null && v!=='' && v!==undefined && Number.isFinite(Number(v));
+}
+function toBoolean(v){
+  if(v===true||v===false) return v;
+  const s=String(v||'').trim().toLowerCase();
+  return ['true','1','y','yes'].includes(s);
+}
+function numValue(v){ return hasExplicitNumber(v); }
+function numText(v){ return Number(toNumber(v)).toString(); }
+function numTextOrDash(v){ return hasExplicitNumber(v)?numText(v):'—'; }
+function fmtDateTime(iso){
+  if(!iso) return '尚未同步';
+  const d=new Date(iso);
+  if(isNaN(d)) return String(iso);
+  const pad=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+async function migrateLegacyRecords(){
+  const all=await getAllLocal();
+  for(const rec of all){
+    let next=normalizeLocalRecord(rec);
+    let changed=false;
+    if((rec.lat==null||rec.lng==null) && rec.twd97Coord){
+      const gps=convertTwd97TextToGps(rec.twd97Coord);
+      next.lat=gps.lat; next.lng=gps.lng; next.gpsText=rec.twd97Coord; changed=true;
+    }
+    const normalizedPhotos=normalizePhotos(rec.photos);
+    if(JSON.stringify(normalizedPhotos)!==JSON.stringify(rec.photos||[])){
+      next.photos=normalizedPhotos; changed=true;
+    }
+    const desiredData=inferDataSyncStatus(rec);
+    const desiredPhoto=inferPhotoSyncStatus(rec, normalizedPhotos);
+    if(rec.dataSyncStatus!==desiredData){ next.dataSyncStatus=desiredData; changed=true; }
+    if(rec.photoSyncStatus!==desiredPhoto){ next.photoSyncStatus=desiredPhoto; changed=true; }
+    if(changed) await putRecLocal(next);
+  }
+}
+
+async function boot(){
+  loadAppConfig();
+  renderSyncUi();
+  await openDB();
+  await migrateLegacyRecords();
+  await renderList();
+  syncHomeUi();
+  window.addEventListener('scroll', updateToTopButton, {passive:true});
+  updateToTopButton();
+  startAutoSync();
+}
+
+boot().catch(e=>alert('初始化失敗：'+shortErr(e)));
+</script>
+</body>
+</html>

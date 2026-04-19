@@ -1711,8 +1711,10 @@ function isValidGps(lat,lng){
 }
 function shouldShowMissingMapRecordToast(rec){
   if(!rec) return true;
+  if(!isValidGps(rec.lat,rec.lng)) return true;
+  if(needsDataSync(rec)) return false;
   if(rec.status==='pending') return false;
-  if(needsAnySync(rec)) return false;
+  if(rec.status==='done') return true;
   return true;
 }
 function focusMapRecordById(id){

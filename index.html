@@ -1709,8 +1709,14 @@ function isValidGps(lat,lng){
   if(+lat===0 && +lng===0) return false;
   return true;
 }
+function shouldShowMissingMapRecordToast(rec){
+  if(!rec) return true;
+  if(rec.status==='pending') return false;
+  if(needsAnySync(rec)) return false;
+  return true;
+}
 function focusMapRecordById(id){
-  if(!id||!measureMapMarkerMap.has(id)){ toast('此案件目前無法在丈量地圖上顯示'); return; }
+  if(!id||!measureMapMarkerMap.has(id)){ return; }
   const marker=measureMapMarkerMap.get(id);
   focusMapRecordId=id;
   measureMap.setCenter(marker.getPosition());
@@ -1865,9 +1871,14 @@ async function initMeasureMap(){
   if(points.length===1){ measureMap.setCenter(bounds.getCenter()); measureMap.setZoom(17); }
   else{ measureMap.fitBounds(bounds,{top:50,right:50,bottom:50,left:50}); }
   if(focusMapRecordId){
-    setTimeout(()=>{
-      if(measureMapMarkerMap.has(String(focusMapRecordId))) focusMapRecordById(String(focusMapRecordId));
-      else toast('此案件目前不會顯示在丈量地圖上');
+    setTimeout(async ()=>{
+      const targetId=String(focusMapRecordId||'');
+      if(measureMapMarkerMap.has(targetId)){
+        focusMapRecordById(targetId);
+      }else{
+        const rec=targetId?await getRecLocal(targetId):null;
+        if(shouldShowMissingMapRecordToast(rec)) toast('此案件目前不會顯示在丈量地圖上');
+      }
       focusMapRecordId=null;
     },160);
   }

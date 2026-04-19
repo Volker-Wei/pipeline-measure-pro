@@ -609,6 +609,7 @@ let measureMapUserMarker=null;
 let googleMapsPromise=null;
 let measureMapMarkerMap=new Map();
 let focusMapRecordId=null;
+let pendingMapToastRecordId='';
 let appConfig={apiBaseUrl:'',syncIntervalMs:DEFAULT_SYNC_INTERVAL_MS,driveClientId:'',driveFolderId:''};
 let syncTimer=null;
 let isSyncing=false;
@@ -1513,13 +1514,29 @@ async function tryLockPortraitMode(){
 }
 
 function switchHomeTab(tab){
+  const prevTab=homeTab;
+  if(prevTab===tab){
+    syncHomeUi();
+    return;
+  }
+  if(prevTab==='list' && tab==='map'){
+    rememberListScroll();
+  }
   homeTab=tab;
   const isList=tab==='list';
   document.getElementById('home-tab-list').classList.toggle('active',isList);
   document.getElementById('home-tab-map').classList.toggle('active',!isList);
   document.getElementById('home-view-list').classList.toggle('active',isList);
   document.getElementById('home-view-map').classList.toggle('active',!isList);
-  if(isList) renderList(); else initMeasureMap();
+  if(isList){
+    renderList();
+    const shouldRestore=restoreListScroll || prevTab==='map';
+    const targetY=shouldRestore?listPageScrollY:0;
+    requestAnimationFrame(()=>window.scrollTo(0,targetY));
+    restoreListScroll=false;
+  }else{
+    initMeasureMap();
+  }
   syncHomeUi();
 }
 
@@ -1732,11 +1749,13 @@ function focusMapRecordById(id){
   measureMap.setZoom(18);
   google.maps.event.trigger(marker,'click');
 }
-function openRecordOnMap(ev,id){
+async function openRecordOnMap(ev,id){
   if(ev){ev.stopPropagation();ev.preventDefault();}
   const mapSearch=getHomeSearchInput();
   if(mapSearch) mapSearch.value='';
+  const rec=id?await getRecLocal(id):null;
   focusMapRecordId=id;
+  pendingMapToastRecordId=shouldAppearOnMeasureMap(rec)?'':String(id||'');
   gotoPage('page-list');
   switchHomeTab('map');
 }
@@ -1880,16 +1899,15 @@ async function initMeasureMap(){
   if(points.length===1){ measureMap.setCenter(bounds.getCenter()); measureMap.setZoom(17); }
   else{ measureMap.fitBounds(bounds,{top:50,right:50,bottom:50,left:50}); }
   if(focusMapRecordId){
-    setTimeout(async ()=>{
+    setTimeout(()=>{
       const targetId=String(focusMapRecordId||'');
       if(measureMapMarkerMap.has(targetId)){
         focusMapRecordById(targetId);
-      }else{
-        const rec=targetId?await getRecLocal(targetId):null;
-        const shouldAppear=shouldAppearOnMeasureMap(rec);
-        if(!shouldAppear && shouldShowMissingMapRecordToast(rec)) toast('此案件目前不會顯示在丈量地圖上');
+      }else if(pendingMapToastRecordId && pendingMapToastRecordId===targetId){
+        toast('此案件目前不會顯示在丈量地圖上');
       }
       focusMapRecordId=null;
+      pendingMapToastRecordId='';
     },160);
   }
   setTimeout(()=>{ if(window.google&&measureMap) google.maps.event.trigger(measureMap,'resize'); },100);

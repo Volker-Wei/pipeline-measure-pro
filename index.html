@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="screen-orientation" content="portrait">
+<meta name="x5-orientation" content="portrait">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="管溝丈量系統">
@@ -277,33 +279,59 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   padding:9px 18px;border-radius:18px;font-size:13px;opacity:0;transition:all .22s;
   z-index:9999;white-space:nowrap;pointer-events:none;max-width:90vw;text-align:center}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* HOME TOP FIXED / LANDSCAPE BEST-EFFORT */
+html,body{height:100%}
+.home-top{position:sticky;top:0;z-index:140;background:var(--surface);padding-bottom:8px}
+.home-top .hdr{position:static;top:auto;z-index:auto;border-bottom:none;padding-bottom:10px}
+.home-top .home-tabs{position:static;top:auto;z-index:auto;border-bottom:none;padding:0 15px;background:var(--surface)}
+.home-top .home-tab{background:transparent;border:none;color:var(--text2);padding:8px 8px 10px}
+.home-top .home-tab:first-child,.home-top .home-tab:last-child{border-radius:0}
+.home-top .home-tab.active{background:transparent;border:none;color:var(--text);box-shadow:inset 0 -2px 0 var(--accent)}
+.home-top .srch-wrap{padding:8px 15px 0;background:var(--surface);border-bottom:none}
+.home-top .srch-inp{background:var(--surface2);border:none;border-radius:999px}
+#home-view-list .stats{background:transparent}
+.map-wrap{padding:6px 15px 88px}
+.map-card{background:transparent;border:none;border-radius:0;overflow:visible}
+.map-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0 10px}
+.map-sub{font-size:12px;color:var(--text2);line-height:1.7;margin-top:0;flex:1;min-width:0}
+.map-locate-btn{background:transparent!important;color:var(--text)!important;border:1px solid rgba(230,237,243,.75)!important;padding:6px 10px!important;font-size:11px!important;min-height:auto!important}
+#map-canvas{width:100%;height:calc(100vh - 226px);min-height:360px;background:var(--surface2);border-radius:12px}
+.map-inline-empty{padding:18px 12px 8px}
+@media (max-width: 768px){
+  #map-canvas{height:calc(100vh - 214px);min-height:320px}
+}
+
 </style>
 </head>
 <body>
 
 <!-- ══════ LIST PAGE ══════ -->
 <div id="page-list" class="page active">
-  <div class="hdr">
-    <div class="hdr-l">
-      <div class="hdr-ico">🔧</div>
-      <div><div class="hdr-t">管溝丈量系統</div><div class="hdr-s" id="sync-caption">監造現場用・尚未設定同步</div></div>
+  <div class="home-top">
+    <div class="hdr">
+      <div class="hdr-l">
+        <div class="hdr-ico">🔧</div>
+        <div><div class="hdr-t">管溝丈量系統</div><div class="hdr-s" id="sync-caption">監造現場用・尚未設定同步</div></div>
+      </div>
+      <div class="hdr-btns">
+        <button class="hbtn" onclick="syncNow(true)">☁️ 同步</button>
+        <button class="hbtn" onclick="gotoPage('page-sync')">⚙️ 設定</button>
+      </div>
     </div>
-    <div class="hdr-btns">
-      <button class="hbtn" onclick="syncNow(true)">☁️ 同步</button>
-      <button class="hbtn" onclick="gotoPage('page-sync')">⚙️ 設定</button>
-    </div>
-  </div>
 
-  <div class="home-tabs">
-    <button id="home-tab-list" class="home-tab active" onclick="switchHomeTab('list')">📋 丈量清單</button>
-    <button id="home-tab-map" class="home-tab" onclick="switchHomeTab('map')">🗺️ 丈量地圖</button>
+    <div class="home-tabs">
+      <button id="home-tab-list" class="home-tab active" onclick="switchHomeTab('list')">📋 丈量清單</button>
+      <button id="home-tab-map" class="home-tab" onclick="switchHomeTab('map')">🗺️ 丈量地圖</button>
+    </div>
+
+    <div class="srch-wrap home-search">
+      <span class="srch-ico" aria-hidden="true">🔍</span>
+      <input id="home-search" class="srch-inp" type="text" placeholder="搜尋行動代號/用戶名/水號/地址" oninput="onHomeSearchInput()">
+    </div>
   </div>
 
   <div id="home-view-list" class="home-view active">
-    <div class="srch-wrap">
-      <span class="srch-ico" aria-hidden="true">🔍</span>
-      <input id="srch" class="srch-inp" type="text" placeholder="搜尋行動代號/用戶名/水號/地址" oninput="renderList()">
-    </div>
     <div class="stats" id="stats"></div>
     <div class="rlist" id="rlist"></div>
   </div>
@@ -311,16 +339,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div id="home-view-map" class="home-view">
     <div class="map-wrap">
       <div class="map-card">
-        <div class="map-note">
-          <div class="map-title">📍 丈量地圖</div>
+        <div class="map-head">
           <div class="map-sub" id="map-summary">讀取地圖資料中…</div>
-        </div>
-        <div class="srch-wrap">
-          <span class="srch-ico" aria-hidden="true">🔍</span>
-          <input id="map-srch" class="srch-inp" type="text" placeholder="搜尋行動代號/用戶名/水號/地址" oninput="initMeasureMap()">
-        </div>
-        <div class="map-tools">
-          <button id="map-locate-btn" class="btn btn-b btn-sm" onclick="locateMeOnMap()">📍 定位我</button>
+          <button id="map-locate-btn" class="btn btn-sm map-locate-btn" onclick="locateMeOnMap()">📍 定位我</button>
         </div>
         <div id="map-canvas"></div>
         <div id="map-empty" class="map-inline-empty" style="display:none">
@@ -598,6 +619,9 @@ let driveAccessToken='';
 let driveTokenExpiresAt=0;
 let driveAuthPromise=null;
 let _tt;
+
+document.addEventListener('DOMContentLoaded', ()=>{ tryLockPortraitMode(); });
+window.addEventListener('orientationchange', ()=>{ setTimeout(()=>{ tryLockPortraitMode(); }, 80); });
 
 function openDB(){
   return new Promise((res,rej)=>{
@@ -1470,6 +1494,24 @@ function gotoPage(id){
   if(id==='page-sync') renderSyncUi();
   syncHomeUi();
 }
+
+function getHomeSearchInput(){
+  return document.getElementById('home-search');
+}
+function getHomeSearchValue(){
+  return (getHomeSearchInput()?.value||'').trim().toLowerCase();
+}
+function onHomeSearchInput(){
+  if(homeTab==='map') initMeasureMap(); else renderList();
+}
+async function tryLockPortraitMode(){
+  try{
+    if(screen.orientation && typeof screen.orientation.lock==='function'){
+      await screen.orientation.lock('portrait');
+    }
+  }catch(e){}
+}
+
 function switchHomeTab(tab){
   homeTab=tab;
   const isList=tab==='list';
@@ -1590,7 +1632,7 @@ function setListStatusFilter(filter){
 }
 async function renderList(){
   const records=(await getAllLocal()).filter(r=>!r.deleted);
-  const kw=(document.getElementById('srch').value||'').trim().toLowerCase();
+  const kw=getHomeSearchValue();
   const done=records.filter(r=>r.status!=='pending');
   const pend=records.filter(r=>r.status==='pending');
   const syncPending=records.filter(r=>needsAnySync(r)).length;
@@ -1677,7 +1719,7 @@ function focusMapRecordById(id){
 }
 function openRecordOnMap(ev,id){
   if(ev){ev.stopPropagation();ev.preventDefault();}
-  const mapSearch=document.getElementById('map-srch');
+  const mapSearch=getHomeSearchInput();
   if(mapSearch) mapSearch.value='';
   focusMapRecordId=id;
   gotoPage('page-list');
@@ -1774,7 +1816,7 @@ async function initMeasureMap(){
   const summaryEl=document.getElementById('map-summary');
   const canvas=document.getElementById('map-canvas');
   const emptyEl=document.getElementById('map-empty');
-  const kw=(document.getElementById('map-srch')?.value||'').trim().toLowerCase();
+  const kw=getHomeSearchValue();
   if(!summaryEl||!canvas||!emptyEl) return;
   summaryEl.textContent='讀取地圖資料中…';
   const all=(await getAllLocal()).filter(r=>!r.deleted);
@@ -1783,9 +1825,7 @@ async function initMeasureMap(){
   const visibleRecords=all.filter(r=>r.status==='pending' || needsAnySync(r));
   const filteredRecords=kw?visibleRecords.filter(r=>recordMatchesKeyword(r,kw)):visibleRecords;
   const points=filteredRecords.filter(r=>isValidGps(r.lat,r.lng));
-  summaryEl.textContent=kw
-    ? `待丈量 ${pendingMeasure.length} 筆、待同步 ${pendingSync.length} 筆；符合搜尋 ${filteredRecords.length} 筆，其中已定位 ${points.length} 筆。`
-    : `待丈量 ${pendingMeasure.length} 筆、待同步 ${pendingSync.length} 筆；已定位 ${points.length} 筆${filteredRecords.length-points.length?`，尚有 ${filteredRecords.length-points.length} 筆未定位`:''}。`;
+  summaryEl.textContent=`待丈量 ${pendingMeasure.length} 筆、待同步 ${pendingSync.length} 筆；已定位 ${points.length} 筆`;
   canvas.style.display='block';
   emptyEl.style.display='none';
   emptyEl.innerHTML=kw

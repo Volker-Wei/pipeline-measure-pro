@@ -1709,6 +1709,13 @@ function isValidGps(lat,lng){
   if(+lat===0 && +lng===0) return false;
   return true;
 }
+function shouldAppearOnMeasureMap(rec){
+  if(!rec) return false;
+  if(!isValidGps(rec.lat,rec.lng)) return false;
+  if(rec.status==='pending') return true;
+  if(needsAnySync(rec)) return true;
+  return false;
+}
 function shouldShowMissingMapRecordToast(rec){
   if(!rec) return true;
   if(!isValidGps(rec.lat,rec.lng)) return true;
@@ -1879,7 +1886,8 @@ async function initMeasureMap(){
         focusMapRecordById(targetId);
       }else{
         const rec=targetId?await getRecLocal(targetId):null;
-        if(shouldShowMissingMapRecordToast(rec)) toast('此案件目前不會顯示在丈量地圖上');
+        const shouldAppear=shouldAppearOnMeasureMap(rec);
+        if(!shouldAppear && shouldShowMissingMapRecordToast(rec)) toast('此案件目前不會顯示在丈量地圖上');
       }
       focusMapRecordId=null;
     },160);

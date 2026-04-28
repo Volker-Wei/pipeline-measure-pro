@@ -156,7 +156,16 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 .r3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;}
 
 /* 防止手機瀏覽器的 date/input 把欄位撐出去 */
-.r2 > .fld,.r3 > .fld{min-width:0;}.fld input,.fld textarea{min-width:0;max-width:100%;}
+.r2 > .fld,
+.r3 > .fld{
+  min-width:0;
+}
+
+.fld input,
+.fld textarea{
+  min-width:0;
+  max-width:100%;
+}
 
 .ccard{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);
   padding:13px;display:grid;gap:9px;margin-top:9px}
@@ -305,6 +314,36 @@ html,body{height:100%}
   #map-canvas{height:calc(100vh - 214px);min-height:320px}
 }
 
+/* 修正手機版：水號 / 丈量日期列寬度超出 */
+.id-date-row{
+  width:100%;
+  max-width:100%;
+  grid-template-columns:calc((100% - 9px) / 2) calc((100% - 9px) / 2);
+  gap:9px;
+  overflow:hidden;
+}
+
+.id-date-row > .fld{
+  min-width:0;
+  max-width:100%;
+  overflow:hidden;
+}
+
+.id-date-row input{
+  width:100%;
+  max-width:100%;
+  min-width:0;
+  box-sizing:border-box;
+}
+
+#f-date{
+  -webkit-appearance:none;
+  appearance:none;
+  width:100%;
+  max-width:100%;
+  min-width:0;
+}
+
 </style>
 </head>
 <body>
@@ -372,9 +411,9 @@ html,body{height:100%}
     <div class="fgrp">
       <div class="fld"><label>用戶名 *</label>
         <input id="f-project" type="text" placeholder="例：王○○"></div>
-      <div class="r2">
+      <div class="r2 id-date-row">
         <div class="fld"><label>水號 *</label>
-          <input id="f-trench" type="text" placeholder="例：D1-○○-○○○○-○○"></div>
+          <input id="f-trench" type="text" placeholder="例：D1-99-○○99-99"></div>
         <div class="fld"><label>丈量日期</label>
           <input id="f-date" type="date"></div>
       </div>

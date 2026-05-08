@@ -394,7 +394,8 @@ html,body{height:100%}
     </div>
   </div>
 
-  <button id="home-fab" class="fab" onclick="openAdd()">＋</button>
+  <!-- 此版本不開放手動新增案件 -->
+  <!-- <button id="home-fab" class="fab" onclick="openAdd()">＋</button> -->
   <button id="to-top-btn" class="to-top" onclick="scrollToTopSmooth()" aria-label="回到頂端">🔝</button>
 </div>
 
@@ -1498,15 +1499,6 @@ async function apiPost(action,payload={}){
 }
 
 function syncHomeUi(){
-  const fab = document.getElementById('home-fab');
-
-  if (fab) {
-    const isListPage = document.getElementById('page-list')?.classList.contains('active');
-    const isListTab = homeTab === 'list';
-
-    fab.style.display = (isListPage && isListTab) ? 'grid' : 'none';
-  }
-
   updateToTopButton();
 }
 function updateToTopButton(){

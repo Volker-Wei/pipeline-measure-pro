@@ -2663,7 +2663,6 @@ async function syncNow(manual=false){
   isSyncing=true;
   renderSyncUi();
 
-  if(manual) toast('同步中…');
 
   let textResult={synced:0,errors:0};
   let pulled=false;

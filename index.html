@@ -38,6 +38,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 .hbtn.acc{background:var(--accent);color:#000;border-color:var(--accent);font-weight:700}
 .hbtn.imp{background:var(--blue);color:#000;border-color:var(--blue);font-weight:700}
 .hbtn:active{opacity:.6}
+.hbtn:disabled,
+.btn:disabled{
+  opacity:.55;
+  cursor:not-allowed;
+  pointer-events:none;
+  transform:none!important;
+}
 
 .page{display:none}.page.active{display:block}
 
@@ -357,7 +364,7 @@ html,body{height:100%}
         <div><div class="hdr-t">管溝丈量系統</div><div class="hdr-s" id="sync-caption">屏東所設計現場用・尚未設定同步</div></div>
       </div>
       <div class="hdr-btns">
-        <button class="hbtn" onclick="syncNow(true)">☁️ 同步</button>
+        <button id="btn-main-sync" class="hbtn" onclick="syncNow(true)">☁️ 同步</button>
         <button class="hbtn" onclick="gotoPage('page-sync')">⚙️ 設定</button>
       </div>
     </div>
@@ -555,7 +562,6 @@ html,body{height:100%}
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
           <button class="btn btn-p btn-sm" onclick="saveSyncConfig()">💾 儲存設定</button>
           <button class="btn btn-s btn-sm" onclick="testSyncConnection()">🧪 測試連線</button>
-          <button class="btn btn-b btn-sm" onclick="syncNow(true)">☁️ 立即同步</button>
         </div>
       </div>
     </div>
@@ -841,6 +847,13 @@ function renderDriveStatus(){
     <div>資料夾：<b>${esc(appConfig.driveFolderId||'我的雲端硬碟根目錄')}</b></div>
     <div>登入狀態：<b>${authOk?'已登入本頁':'尚未登入本頁'}</b></div>`;
 }
+function updateSyncButtons(){
+  const mainBtn=document.getElementById('btn-main-sync');
+  if(mainBtn){
+    mainBtn.disabled=!!isSyncing;
+    mainBtn.textContent=isSyncing?'☁️ 同步中...':'☁️ 同步';
+  }
+}
 function renderSyncUi(){
   const api=document.getElementById('cfg-api-url');
   const ms=document.getElementById('cfg-sync-ms');
@@ -854,6 +867,7 @@ function renderSyncUi(){
   if(driveFolder) driveFolder.value=appConfig.driveFolderId||'';
   renderDriveStatus();
   updateSyncCaption(hasApiConfig()?`${isSyncing?'同步中…':'已設定手動同步'}${lastSyncAt?`・${fmtDateTime(lastSyncAt)}`:''}`:'屏東所設計現場用・尚未設定同步');
+  updateSyncButtons();
 }
 function updateSyncCaption(text){
   const el=document.getElementById('sync-caption');
@@ -2587,26 +2601,41 @@ async function syncPendingPhotoRecords(){
   await renderList();
   return result;
 }
-async function syncFromRemote({silent=false,forceToast=false}={}){
+async function syncFromRemote({silent=false,forceToast=false,internal=false}={}){
   if(!hasApiConfig()){
     renderSyncUi();
     if(forceToast) toast('請先設定 Apps Script Web App URL');
     return false;
   }
-  if(isSyncing) return false;
-  isSyncing=true;
-  renderSyncUi();
+
+  if(!internal && isSyncing) return false;
+
+  const ownLock=!internal;
+  if(ownLock){
+    isSyncing=true;
+    renderSyncUi();
+  }
+
   updateSyncCaption('同步中…');
+
   try{
     const data=await apiGet('bootstrap');
-    const remoteRecords=(data.records||[]).map(rec=>normalizeLocalRecord(rec,{dataSyncStatus:'synced',photoSyncStatus:rec.photoSyncStatus||inferPhotoSyncStatus(rec)}));
+    const remoteRecords=(data.records||[]).map(rec=>normalizeLocalRecord(rec,{
+      dataSyncStatus:'synced',
+      photoSyncStatus:rec.photoSyncStatus||inferPhotoSyncStatus(rec)
+    }));
+
     const localRecords=await getAllLocal();
     const merged=mergeRemoteWithLocal(remoteRecords,localRecords);
+
     await replaceLocalRecords(merged);
+
     lastSyncAt=new Date().toISOString();
     lastRegistryInfo=data;
+
     renderSyncUi();
     await renderList();
+
     if(forceToast) toast('同步完成');
     return true;
   }catch(e){
@@ -2615,43 +2644,61 @@ async function syncFromRemote({silent=false,forceToast=false}={}){
     if(!silent||forceToast) toast('同步失敗：'+shortErr(e));
     return false;
   }finally{
-    isSyncing=false;
-    renderSyncUi();
+    if(ownLock){
+      isSyncing=false;
+      renderSyncUi();
+    }
   }
 }
+
 async function syncNow(manual=false){
   if(!hasApiConfig()){
     gotoPage('page-sync');
     if(manual) toast('請先設定 Apps Script Web App URL');
     return;
   }
+
   if(isSyncing) return;
+
+  isSyncing=true;
+  renderSyncUi();
+
   if(manual) toast('同步中…');
 
   let textResult={synced:0,errors:0};
   let pulled=false;
-  let photoResult={syncedRecords:0,uploadedPhotos:0,errors:0,keptLocalPhotos:0,clearedMissingDrivePhotos:0,noDriveRecords:0};
+  let photoResult={
+    syncedRecords:0,
+    uploadedPhotos:0,
+    errors:0,
+    keptLocalPhotos:0,
+    clearedMissingDrivePhotos:0,
+    noDriveRecords:0
+  };
 
   try{
     textResult=await syncPendingTextRecords();
-    pulled=await syncFromRemote({silent:!manual,forceToast:false});
+    pulled=await syncFromRemote({silent:!manual,forceToast:false,internal:true});
     photoResult=await syncPendingPhotoRecords();
+
+    if(manual){
+      const parts=[];
+      if(textResult.synced) parts.push(`文字同步 ${textResult.synced} 筆`);
+      if(textResult.errors) parts.push(`文字失敗 ${textResult.errors} 筆`);
+      if(photoResult.uploadedPhotos) parts.push(`照片上傳 ${photoResult.uploadedPhotos} 張`);
+      if(photoResult.syncedRecords) parts.push(`照片完成 ${photoResult.syncedRecords} 筆`);
+      if(photoResult.clearedMissingDrivePhotos) parts.push(`清除失效照片資訊 ${photoResult.clearedMissingDrivePhotos} 張`);
+      if(photoResult.noDriveRecords) parts.push(`未設定 Drive ${photoResult.noDriveRecords} 筆`);
+      if(photoResult.keptLocalPhotos) parts.push(`照片保留本機 ${photoResult.keptLocalPhotos} 張`);
+      if(photoResult.errors) parts.push(`照片失敗 ${photoResult.errors} 筆`);
+
+      toast(parts.length?`同步完成：${parts.join('，')}`:(pulled?'同步完成':'目前沒有待同步資料'));
+    }
   }catch(e){
     if(manual) toast('同步失敗：'+shortErr(e));
-    return;
-  }
-
-  if(manual){
-    const parts=[];
-    if(textResult.synced) parts.push(`文字同步 ${textResult.synced} 筆`);
-    if(textResult.errors) parts.push(`文字失敗 ${textResult.errors} 筆`);
-    if(photoResult.uploadedPhotos) parts.push(`照片上傳 ${photoResult.uploadedPhotos} 張`);
-    if(photoResult.syncedRecords) parts.push(`照片完成 ${photoResult.syncedRecords} 筆`);
-    if(photoResult.clearedMissingDrivePhotos) parts.push(`清除失效照片資訊 ${photoResult.clearedMissingDrivePhotos} 張`);
-    if(photoResult.noDriveRecords) parts.push(`未設定 Drive ${photoResult.noDriveRecords} 筆`);
-    if(photoResult.keptLocalPhotos) parts.push(`照片保留本機 ${photoResult.keptLocalPhotos} 張`);
-    if(photoResult.errors) parts.push(`照片失敗 ${photoResult.errors} 筆`);
-    toast(parts.length?`同步完成：${parts.join('，')}`:(pulled?'同步完成':'目前沒有待同步資料'));
+  }finally{
+    isSyncing=false;
+    renderSyncUi();
   }
 }
 

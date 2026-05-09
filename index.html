@@ -315,10 +315,34 @@ html,body{height:100%}
 .map-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0 10px}
 .map-sub{font-size:12px;color:var(--text2);line-height:1.7;margin-top:0;flex:1;min-width:0}
 .map-locate-btn{background:transparent!important;color:var(--text)!important;border:1px solid rgba(230,237,243,.75)!important;padding:6px 10px!important;font-size:11px!important;min-height:auto!important}
-#map-canvas{width:100%;height:calc(100vh - 226px);min-height:360px;background:var(--surface2);border-radius:12px}
-.map-inline-empty{padding:18px 12px 8px}
-@media (max-width: 768px){
-  #map-canvas{height:calc(100vh - 214px);min-height:320px}
+
+/* 地圖高度自動符合不同手機螢幕 */
+#page-list{
+  min-height:100vh;
+  min-height:100dvh;
+}
+
+#home-view-map.active{
+  height:calc(100vh - 150px);
+  height:calc(100dvh - 150px);  /* 地圖底部留空 XXXpx 越大留空越小*/
+  overflow:hidden;
+}
+
+#home-view-map.active .map-wrap{
+  height:100%;
+  padding:6px 15px 12px;
+}
+
+#home-view-map.active .map-card{
+  height:100%;
+}
+
+#home-view-map.active #map-canvas{
+  width:100%;
+  height:calc(100% - 48px);
+  min-height:0;
+  background:var(--surface2);
+  border-radius:12px;
 }
 
 /* 修正手機版：水號 / 丈量日期列寬度超出 */

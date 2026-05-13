@@ -2473,13 +2473,41 @@ function dedupeRecords(records){
   return sortRecords(out);
 }
 function sortRecords(records){
-  return [...records].sort((a,b)=>{
-    if(!!a.deleted!==!!b.deleted) return a.deleted?1:-1;
-    if((a.status==='pending')!==(b.status==='pending')) return a.status==='pending'?-1:1;
-    const av=String(a.measuredAt||a.updatedAt||a.createdAt||'');
-    const bv=String(b.measuredAt||b.updatedAt||b.createdAt||'');
-    return bv.localeCompare(av);
-  });
+  return [...records]
+    .map((rec, idx) => ({ rec, idx }))
+    .sort((aWrap, bWrap) => {
+      const a = aWrap.rec;
+      const b = bWrap.rec;
+
+      // 1. 已刪除案件排最後
+      if (!!a.deleted !== !!b.deleted) {
+        return a.deleted ? 1 : -1;
+      }
+
+      // 2. 待丈量 pending 排前面
+      if ((a.status === 'pending') !== (b.status === 'pending')) {
+        return a.status === 'pending' ? -1 : 1;
+      }
+
+      // 3. 同狀態內，依原本受理名冊列號 sourceRow 由小到大排序
+      const ar = Number(a.sourceRow);
+      const br = Number(b.sourceRow);
+      const aHasRow = Number.isFinite(ar) && ar > 0;
+      const bHasRow = Number.isFinite(br) && br > 0;
+
+      if (aHasRow && bHasRow && ar !== br) {
+        return ar - br;
+      }
+
+      // 有 sourceRow 的排在沒有 sourceRow 的前面
+      if (aHasRow !== bHasRow) {
+        return aHasRow ? -1 : 1;
+      }
+
+      // 如果兩筆都沒有 sourceRow，就保留原本陣列順序，避免亂跳
+      return aWrap.idx - bWrap.idx;
+    })
+    .map(x => x.rec);
 }
 function hasLocalPendingPhotos(rec){
   return normalizePhotos(rec&&rec.photos).some(photo=>!isDrivePhoto(photo) && !!photo.previewData);

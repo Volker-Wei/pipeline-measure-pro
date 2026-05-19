@@ -96,6 +96,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 .status-badge.neutral{background:rgba(139,148,158,.16);color:var(--text2);border:1px solid rgba(139,148,158,.3)}
 .empty{text-align:center;padding:60px 20px;color:var(--text2)}
 .empty-i{font-size:46px;margin-bottom:12px;opacity:.5}
+.load-more-hint{text-align:center;color:var(--text2);font-size:12px;padding:14px 8px 22px;}
 
 .fab{position:fixed;bottom:22px;right:18px;background:var(--accent);color:#000;
   width:56px;height:56px;border-radius:50%;border:none;font-size:27px;cursor:pointer;
@@ -631,6 +632,14 @@ let homeTab='list';
 let listStatusFilter='pending';
 let listPageScrollY=0;
 let restoreListScroll=false;
+
+// 清單分批載入：先顯示 30 筆，滑到底再載入下一批
+const LIST_PAGE_SIZE=30;
+let listVisibleCount=LIST_PAGE_SIZE;
+let listTotalFilteredCount=0;
+let listLoadingMore=false;
+let listRenderSeq=0;
+  
 let measureMap=null;
 let measureMapMarkers=[];
 let measureMapInfo=null;
@@ -1502,6 +1511,34 @@ function updateToTopButton(){
   const y=window.scrollY||document.documentElement.scrollTop||0;
   btn.classList.toggle('show', onListPage && y>260);
 }
+function maybeLoadMoreListRecords(){
+  const onListPage=!!document.getElementById('page-list')?.classList.contains('active');
+  if(!onListPage || homeTab!=='list') return;
+  if(listLoadingMore) return;
+  if(listVisibleCount>=listTotalFilteredCount) return;
+
+  const y=window.scrollY||document.documentElement.scrollTop||0;
+  const h=window.innerHeight||document.documentElement.clientHeight||0;
+  const fullH=Math.max(
+    document.body.scrollHeight,
+    document.documentElement.scrollHeight
+  );
+
+  // 距離底部 450px 內，就先載入下一批
+  if(y+h < fullH-450) return;
+
+  listLoadingMore=true;
+  listVisibleCount=Math.min(listVisibleCount+LIST_PAGE_SIZE,listTotalFilteredCount);
+
+  renderList().finally(()=>{
+    setTimeout(()=>{ listLoadingMore=false; },120);
+  });
+}
+
+function handleHomeScroll(){
+  updateToTopButton();
+  maybeLoadMoreListRecords();
+}
 function scrollToTopSmooth(){
   window.scrollTo({top:0,behavior:'smooth'});
 }
@@ -1538,7 +1575,12 @@ function getHomeSearchValue(){
   return (getHomeSearchInput()?.value||'').trim().toLowerCase();
 }
 function onHomeSearchInput(){
-  if(homeTab==='map') initMeasureMap(); else renderList();
+  resetListPaging();
+  if(homeTab==='map'){
+    initMeasureMap();
+  }else{
+    renderList().then(scrollListTopAfterRender);
+  }
 }
 async function tryLockPortraitMode(){
   try{
@@ -1678,64 +1720,107 @@ function recordMatchesListStatus(r, filter){
   if(filter==='sync') return needsAnySync(r);
   return true;
 }
+function resetListPaging(){
+  listVisibleCount=LIST_PAGE_SIZE;
+  listTotalFilteredCount=0;
+  listLoadingMore=false;
+}
+
+function scrollListTopAfterRender(){
+  if(document.getElementById('page-list')?.classList.contains('active') && homeTab==='list'){
+    requestAnimationFrame(()=>window.scrollTo(0,0));
+  }
+}
+
 function setListStatusFilter(filter){
   listStatusFilter=filter||'pending';
-  renderList();
+  resetListPaging();
+  renderList().then(scrollListTopAfterRender);
 }
+
+function renderRecordCard(r){
+  const isPend=r.status==='pending';
+  const dateText=r.measuredAt?String(r.measuredAt).slice(0,10):'待填寫';
+
+  return `<div class="rcard${isPend?' pending':''}" onclick="openDetail('${escAttr(r.id)}')">
+    <div class="rc-hd">
+      <div style="flex:1;min-width:0">
+        <div class="rc-t">${esc(r.projectName||'')}</div>
+        <div class="rc-no">水號：${esc(r.trenchNo||'')}</div>
+        ${r.address?`<div class="rc-addr"><span>${esc(r.address)}</span><button class="addr-map-btn" onclick="openRecordOnMap(event,'${escAttr(r.id)}')" title="查看地圖">📍</button></div>`:''}
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
+        <div class="rc-dt">${esc(dateText)}</div>
+        <span class="status-badge ${isPend?'pend':'done'}">${isPend?'待丈量':'已完成'}</span>
+      </div>
+    </div>
+
+    ${isPend?`<div class="dims"><span class="dtag pending">尚未丈量，點擊開始填寫</span></div>`:`
+      <div class="dims">
+        ${numValue(r.lengthM)?`<span class="dtag">溝長 ${numText(r.lengthM)}m</span>`:''}
+        ${numValue(r.roadWidthLenM)?`<span class="dtag">路幅 ${numText(r.roadWidthLenM)}m</span>`:''}
+        ${(numValue(r.paveLenM)||numValue(r.paveWidM))?`<span class="dtag p">刨鋪 長${numText(r.paveLenM)}m × 寬${numText(r.paveWidM)}m</span>`:''}
+        ${numValue(r.lotLenM)?`<span class="dtag">宅地 ${numText(r.lotLenM)}m</span>`:''}
+        ${numValue(r.ditchWidM)?`<span class="dtag">水溝 ${numText(r.ditchWidM)}m</span>`:''}
+        ${numValue(r.stripeLenM)?`<span class="dtag">標線 ${numText(r.stripeLenM)}m</span>`:''}
+      </div>`}
+
+    <div class="rc-ft" style="align-items:flex-start;gap:8px;flex-wrap:wrap">
+      <div class="pbadge">📷 ${(r.photos||[]).length} 張</div>
+      <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+        <div class="pbadge">${renderPhotoSyncBadge(r)}</div>
+        <div class="pbadge">${renderDataSyncBadge(r)}</div>
+      </div>
+    </div>
+  </div>`;
+}
+
 async function renderList(){
+  const seq=++listRenderSeq;
+
   const records=(await getAllLocal()).filter(r=>!r.deleted);
+  if(seq!==listRenderSeq) return;
+
   const kw=getHomeSearchValue();
   const done=records.filter(r=>r.status!=='pending');
   const pend=records.filter(r=>r.status==='pending');
   const syncPending=records.filter(r=>needsAnySync(r)).length;
   const filteredByStatus=records.filter(r=>recordMatchesListStatus(r,listStatusFilter));
   const filtered=filteredByStatus.filter(r=>recordMatchesKeyword(r,kw));
+
+  listTotalFilteredCount=filtered.length;
+
   const stats=[
     ['all','全部',records.length],
     ['pending','待丈量',pend.length],
     ['done','已完成',done.length],
     ['sync','同步待處理',syncPending],
   ];
-  document.getElementById('stats').innerHTML=stats.map(([key,label,count])=>`<button class="chip filter ${listStatusFilter===key?'active':''}" onclick="setListStatusFilter('${key}')">${label} <b>${count}</b></button>`).join('');
+
+  document.getElementById('stats').innerHTML=stats.map(([key,label,count])=>
+    `<button class="chip filter ${listStatusFilter===key?'active':''}" onclick="setListStatusFilter('${key}')">${label} <b>${count}</b></button>`
+  ).join('');
+
   const el=document.getElementById('rlist');
+
   if(!filtered.length){
     const statusLabel=({all:'全部',pending:'待丈量',done:'已完成',sync:'同步待處理'})[listStatusFilter]||'目前';
     el.innerHTML=`<div class="empty"><div class="empty-i">📏</div><div>${kw?'查無結果':`${statusLabel}狀態目前沒有案件`}</div></div>`;
     return;
   }
-  el.innerHTML=filtered.map(r=>{
-    const isPend=r.status==='pending';
-    const dateText=r.measuredAt?String(r.measuredAt).slice(0,10):'待填寫';
-    return `<div class="rcard${isPend?' pending':''}" onclick="openDetail('${escAttr(r.id)}')">
-      <div class="rc-hd">
-        <div style="flex:1;min-width:0">
-          <div class="rc-t">${esc(r.projectName||'')}</div>
-          <div class="rc-no">水號：${esc(r.trenchNo||'')}</div>
-          ${r.address?`<div class="rc-addr"><span>${esc(r.address)}</span><button class="addr-map-btn" onclick="openRecordOnMap(event,'${escAttr(r.id)}')" title="查看地圖">📍</button></div>`:''}
-        </div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
-          <div class="rc-dt">${esc(dateText)}</div>
-          <span class="status-badge ${isPend?'pend':'done'}">${isPend?'待丈量':'已完成'}</span>
-        </div>
-      </div>
-      ${isPend?`<div class="dims"><span class="dtag pending">尚未丈量，點擊開始填寫</span></div>`:`
-        <div class="dims">
-          ${numValue(r.lengthM)?`<span class="dtag">溝長 ${numText(r.lengthM)}m</span>`:''}
-          ${numValue(r.roadWidthLenM)?`<span class="dtag">路幅 ${numText(r.roadWidthLenM)}m</span>`:''}
-          ${(numValue(r.paveLenM)||numValue(r.paveWidM))?`<span class="dtag p">刨鋪 長${numText(r.paveLenM)}m × 寬${numText(r.paveWidM)}m</span>`:''}
-          ${numValue(r.lotLenM)?`<span class="dtag">宅地 ${numText(r.lotLenM)}m</span>`:''}
-          ${numValue(r.ditchWidM)?`<span class="dtag">水溝 ${numText(r.ditchWidM)}m</span>`:''}
-          ${numValue(r.stripeLenM)?`<span class="dtag">標線 ${numText(r.stripeLenM)}m</span>`:''}
-        </div>`}
-      <div class="rc-ft" style="align-items:flex-start;gap:8px;flex-wrap:wrap">
-        <div class="pbadge">📷 ${(r.photos||[]).length} 張</div>
-        <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
-          <div class="pbadge">${renderPhotoSyncBadge(r)}</div>
-          <div class="pbadge">${renderDataSyncBadge(r)}</div>
-        </div>
-      </div>
+
+  const visible=filtered.slice(0,listVisibleCount);
+  const shownCount=visible.length;
+  const hasMore=shownCount<filtered.length;
+
+  el.innerHTML=
+    visible.map(renderRecordCard).join('') +
+    `<div class="load-more-hint">
+      ${hasMore
+        ? `已顯示 ${shownCount} / ${filtered.length} 筆，往下滑繼續載入`
+        : `已顯示全部 ${filtered.length} 筆`}
     </div>`;
-  }).join('');
+
   if(document.getElementById('page-list').classList.contains('active')&&homeTab==='map'){
     setTimeout(()=>initMeasureMap(),0);
   }
@@ -2775,7 +2860,7 @@ async function boot(){
   await migrateLegacyRecords();
   await renderList();
   syncHomeUi();
-  window.addEventListener('scroll', updateToTopButton, {passive:true});
+  window.addEventListener('scroll', handleHomeScroll, {passive:true});
   updateToTopButton();
   startAutoSync();
 }

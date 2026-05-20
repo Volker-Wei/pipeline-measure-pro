@@ -1,21 +1,43 @@
 {
   "name": "管溝丈量系統",
   "short_name": "管溝丈量",
-  "start_url": ".",
+  "description": "管溝丈量、照片、地圖定位與 Google Drive 同步系統",
+  "id": "/pipeline-measure-pro/",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
   "background_color": "#0d1117",
   "theme_color": "#f0a500",
+  "orientation": "portrait",
+  "lang": "zh-TW",
   "icons": [
-    {
-      "src": "icons/wrench-192.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    },
     {
       "src": "icons/wrench-180.png",
       "sizes": "180x180",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/wrench-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/wrench-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/wrench-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
-  ],
-  "orientation": "portrait"
+  ]
 }

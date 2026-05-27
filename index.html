@@ -656,6 +656,19 @@ const PIPE_TILE_CACHE_MAX=60;
 // OGC / OpenLayers 常用 0.28mm 作為 CSS pixel 對應的比例尺換算基準。
 const RECORD_MARKER_TARGET_SCALE=1000;
 const MAP_SCALE_PIXEL_SIZE_M=0.00028;
+// 管線顯示樣式：所有線寬固定為原本管徑100的粗細；管徑改用顏色區分。
+const PIPE_DEFAULT_STYLE_WIDTH=2;
+const PIPE_SIZE_COLOR_MAP={
+  '13':'#b71c1c','20':'#e53935','25':'#ff7043','30':'#f4511e','40':'#fb8c00','50':'#fdd835',
+  '65':'#c0ca33','75':'#7cb342','80':'#43a047','100':'#00c853','125':'#00acc1','150':'#039be5',
+  '175':'#1e88e5','200':'#3949ab','250':'#5e35b1','300':'#8e24aa','350':'#d81b60','400':'#ad1457',
+  '450':'#6d4c41','500':'#00897b','600':'#00695c','700':'#455a64','800':'#546e7a','900':'#6a1b9a',
+  '1000':'#0d47a1','1200':'#263238','1500':'#000000','2000':'#4e342e'
+};
+const PIPE_FALLBACK_COLORS=[
+  '#e6194b','#3cb44b','#ffe119','#4363d8','#f58231','#911eb4','#46f0f0','#f032e6','#bcf60c','#fabebe',
+  '#008080','#e6beff','#9a6324','#fffac8','#800000','#aaffc3','#808000','#ffd8b1','#000075','#808080'
+];
 const WATERGIS_WMS_URL='https://w3.water.gov.tw/gis/api/MapProxy';
 const WATERGIS_WMS_LAYER_CODE='GMLayer';
 
@@ -2265,17 +2278,37 @@ function findFeatureRootFromNode(node){
   }
   return node&&node.parentNode ? node.parentNode : null;
 }
+const pipeStyleCache=new Map();
+function normalizePipeSizeValue(value){
+  const raw=String(value||'').trim();
+  if(!raw) return '';
+  const m=raw.match(/-?\d+(?:\.\d+)?/);
+  if(!m) return raw;
+  const n=Number(m[0]);
+  if(!Number.isFinite(n)) return raw;
+  return Math.abs(n-Math.round(n))<1e-9 ? String(Math.round(n)) : String(Number(n.toFixed(3)));
+}
+function fallbackPipeColor(key){
+  if(!key) return '#00c2ff';
+  let h=0;
+  for(let i=0;i<key.length;i++) h=(h*31+key.charCodeAt(i))%1000003;
+  return PIPE_FALLBACK_COLORS[h%PIPE_FALLBACK_COLORS.length];
+}
+function pipeColorBySize(size){
+  const key=normalizePipeSizeValue(size);
+  return PIPE_SIZE_COLOR_MAP[key] || fallbackPipeColor(key);
+}
 function getPipeStyle(feature){
-  const size=Number(feature.get('pipe_size'))||0;
-  const material=String(feature.get('pipe_mtr')||'').toUpperCase();
-  let color='#00c2ff';
-  if(material.includes('DIP')) color='#f0a500';
-  else if(material.includes('PVC')) color='#58a6ff';
-  else if(material.includes('SP')) color='#bc8cff';
-  const width=Math.max(2,Math.min(7,Math.round(size/75)||2));
-  return new ol.style.Style({
+  const color=String(feature.get('pipe_style_color')||'').trim() || pipeColorBySize(feature.get('pipe_size_norm')||feature.get('pipe_size'));
+  const widthValue=Number(feature.get('pipe_style_width'));
+  const width=Number.isFinite(widthValue) && widthValue>0 ? widthValue : PIPE_DEFAULT_STYLE_WIDTH;
+  const cacheKey=color+'|'+width;
+  if(pipeStyleCache.has(cacheKey)) return pipeStyleCache.get(cacheKey);
+  const style=new ol.style.Style({
     stroke:new ol.style.Stroke({color,width})
   });
+  pipeStyleCache.set(cacheKey,style);
+  return style;
 }
 function getRecordMarkerStyle(feature){
   const r=feature.get('record')||{};

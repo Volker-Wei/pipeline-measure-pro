@@ -1,59 +1,22 @@
-# 管溝丈量系統 PWA GitHub Pages 部署包
+方案 D：GML 分區動態載入版
 
-## 這包檔案用途
+GitHub Pages 上傳方式：
+1. 將 index.html 上傳到你的 GitHub Pages 網站根目錄，或改成你原本使用的 HTML 檔名。
+2. 將 pipe_tiles 整個資料夾一併上傳，且必須與 index.html 同一層。
 
-這是依照你目前 GitHub 裡的檔案整理出的 PWA 版本，保留：
+結構範例：
+  /index.html
+  /pipe_tiles/manifest.json
+  /pipe_tiles/tile_13411_2593.geojson
+  /pipe_tiles/...
 
-- `index.html`
-- `manifest.json`
-- `icons/wrench-180.png`
-- `icons/wrench-192.png`
+這版不再讓手機直接載入 PIPE.gml，而是只載入目前畫面附近的 geojson 小分區。
+若要重新用新的 PIPE.gml 產生分區，請在電腦執行：
+  pip install pyproj shapely
+  python convert_gml_to_pipe_tiles.py PIPE.gml pipe_tiles --tile-size 1000 --simplify 0.2
 
-另外補上：
-
-- `service-worker.js`
-- `icons/wrench-512.png`
-- `icons/wrench-maskable-512.png`
-- `.well-known/assetlinks.json` 範本
-
-## 建議放置位置
-
-GitHub Pages 專案：
-
-```text
-pipeline-measure-pro/
-├─ index.html
-├─ manifest.json
-├─ service-worker.js
-└─ icons/
-   ├─ wrench-180.png
-   ├─ wrench-192.png
-   ├─ wrench-512.png
-   └─ wrench-maskable-512.png
-```
-
-你的網站網址：
-
-```text
-https://volker-wei.github.io/pipeline-measure-pro/
-```
-
-## Android TWA 注意
-
-如果要讓 Android APK 用 TWA 完整全螢幕開啟，`assetlinks.json` 必須放在網域根目錄：
-
-```text
-https://volker-wei.github.io/.well-known/assetlinks.json
-```
-
-不是：
-
-```text
-https://volker-wei.github.io/pipeline-measure-pro/.well-known/assetlinks.json
-```
-
-所以建議另外建立 `volker-wei.github.io` repository，並把 `.well-known/assetlinks.json` 放進去。
-
-## Android 簽章後需要改 assetlinks
-
-`assetlinks.json` 裡面的 SHA-256 目前是佔位文字。你用 Android Studio 產生簽章後，要把 SHA-256 憑證指紋填進去。
+參數建議：
+  --tile-size 1000  每格 1000 公尺，穩定、請求數較少
+  --tile-size 500   每格 500 公尺，更省單次載入量，但請求數較多
+  --simplify 0.2    線段簡化 0.2 公尺，適合 1:1000 附近顯示
+  --simplify 0      不簡化，精度最高但檔案較大

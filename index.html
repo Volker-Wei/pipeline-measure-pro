@@ -651,7 +651,7 @@ const PIPE_GML_URL='PIPE.gml';
 const PIPE_GML_URLS=['PIPE.gml','./PIPE.gml','PIPE.GML','pipe.gml','Pipe.gml'];
 // 點擊案件圖標時，自動縮放到接近比例尺 1:500。
 // OGC / OpenLayers 常用 0.28mm 作為 CSS pixel 對應的比例尺換算基準。
-const RECORD_MARKER_TARGET_SCALE=1000;
+const RECORD_MARKER_TARGET_SCALE=500;
 const MAP_SCALE_PIXEL_SIZE_M=0.00028;
 
 
@@ -2106,7 +2106,7 @@ function setupProj4ForTaiwan(){
   if(!window.proj4){
     if(!waterGisProjWarned){
       waterGisProjWarned=true;
-      setTimeout(()=>toast('proj4 載入失敗，台水圖資/GML 暫時無法換算座標'),80);
+      setTimeout(()=>toast('proj4 載入失敗，國土測繪雲/GML 暫時無法換算座標'),80);
     }
     return false;
   }
@@ -2118,7 +2118,7 @@ function setupProj4ForTaiwan(){
   }catch(e){
     if(!waterGisProjWarned){
       waterGisProjWarned=true;
-      setTimeout(()=>toast('台水圖資座標系統初始化失敗'),80);
+      setTimeout(()=>toast('國土測繪雲座標系統初始化失敗'),80);
     }
     return false;
   }
@@ -2131,6 +2131,33 @@ function ensureOpenLayersReady(){
   }
   return false;
 }
+
+function createNlscBaseLayer(){
+  return new ol.layer.Tile({
+    title:'國土測繪雲電子地圖',
+    source:new ol.source.XYZ({
+      maxZoom:22,
+      crossOrigin:'anonymous',
+      tileUrlFunction:function(tileCoord){
+        if(!tileCoord) return '';
+        const z=tileCoord[0], x=tileCoord[1], rawY=tileCoord[2];
+        const y=rawY<0 ? -rawY-1 : rawY;
+        return 'https://wmts.nlsc.gov.tw/wmts'
+          +'?layer=EMAP'
+          +'&style=_null'
+          +'&tilematrixset=EPSG:3857'
+          +'&Service=WMTS'
+          +'&Request=GetTile'
+          +'&Version=1.0.0'
+          +'&Format=image/png'
+          +'&TileMatrix='+z
+          +'&TileCol='+x
+          +'&TileRow='+y;
+      }
+    })
+  });
+}
+
 function twd97ToLonLat(x,y){
   if(!setupProj4ForTaiwan()) return null;
   const out=proj4('EPSG:3826','EPSG:4326',[+x,+y]);
@@ -2585,7 +2612,7 @@ function fitWaterGisView(points){
 }
 async function initWaterGisMeasureMap(points, emptyEl){
   if(!ensureOpenLayersReady()){
-    if(emptyEl){ emptyEl.style.display='block'; emptyEl.innerHTML='⚠️ OpenLayers / proj4 載入失敗，無法顯示台水圖資。'; }
+    if(emptyEl){ emptyEl.style.display='block'; emptyEl.innerHTML='⚠️ OpenLayers / proj4 載入失敗，無法顯示國土測繪雲底圖。'; }
     return;
   }
   initWaterGisMapShell();

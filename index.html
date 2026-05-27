@@ -681,7 +681,6 @@ let googleMapsPromise=null;
 let googleMapDiv=null;
 let waterGisMapDiv=null;
 let currentMapBaseMode='google';
-let waterGisAuthWarned=false;
 let waterGisProjWarned=false;
 let waterGisOlWarned=false;
 let waterOlMap=null;
@@ -2450,60 +2449,6 @@ async function loadPipeGmlLayer(force=false){
   })();
   return waterOlGmlLoadPromise;
 }
-function triggerPipeGmlImport(){
-  const input=document.getElementById('pipe-gml-file-input');
-  if(!input){ toast('找不到 GML 匯入元件'); return; }
-  input.click();
-}
-async function handlePipeGmlFileImport(input){
-  const file=input&&input.files&&input.files[0];
-  if(!file) return;
-  try{
-    if(currentMapBaseMode!=='watergis'){
-      currentMapBaseMode='watergis';
-      refreshMapBaseToggleButton();
-      setActiveMapEngine('watergis');
-    }
-    if(!ensureOpenLayersReady()) throw new Error('OpenLayers / proj4 尚未載入完成');
-    initWaterGisMapShell();
-    setWaterGisStatus(`讀取 ${file.name||'GML'} 中…`);
-    const text=await file.text();
-    setWaterGisStatus('解析 GML 管線圖層中…');
-    const features=parsePipeGmlTextToFeatures(text);
-    applyPipeFeatures(features, file.name||'GML');
-    fitWaterGisToPipeLayer(false);
-    const summaryEl=document.getElementById('map-summary');
-    if(summaryEl){
-      summaryEl.textContent=summaryEl.textContent.replace(/、GML管線\s*[^；,，]*筆/g,'')+`、GML管線 ${waterOlPipeFeatureCount} 筆`;
-    }
-  }catch(e){
-    setWaterGisStatus('');
-    toast(shortErr(e));
-  }finally{
-    if(input) input.value='';
-  }
-}
-function fitWaterGisToPipeLayer(showMissingToast=true){
-  if(currentMapBaseMode!=='watergis'){
-    currentMapBaseMode='watergis';
-    refreshMapBaseToggleButton();
-    setActiveMapEngine('watergis');
-  }
-  if(!waterOlMap || !waterOlPipeSource || !waterOlPipeSource.getFeatures().length){
-    if(showMissingToast) toast('目前尚未載入 GML 管線');
-    return false;
-  }
-  const extent=waterOlPipeSource.getExtent();
-  if(!extent || ol.extent.isEmpty(extent)){
-    if(showMissingToast) toast('GML 管線範圍無效');
-    return false;
-  }
-  waterOlMap.getView().fit(extent,{padding:[35,35,35,35],maxZoom:18,duration:260});
-  lockWaterGisNorthUp();
-  if(showMissingToast) toast('已定位到 GML 管線範圍');
-  return true;
-}
-
 function enforceWaterGisNorthUp(){
   if(!waterOlMap) return;
   const view=waterOlMap.getView();

@@ -647,8 +647,11 @@ const APP_CONFIG_KEY='TrenchSyncConfigV1';
 const MEASURE_CACHE_KEY='TrenchMeasureDraftCacheV1';
 const DEFAULT_SYNC_INTERVAL_MS=15000;
 const DRIVE_SCOPE='https://www.googleapis.com/auth/drive';
-const PIPE_GML_URL='PIPE.gml';
-const PIPE_GML_URLS=['PIPE.gml','./PIPE.gml','PIPE.GML','pipe.gml','Pipe.gml'];
+const PIPE_TILE_MANIFEST_URL='pipe_tiles/manifest.json';
+// 動態分區載入：只讀目前畫面附近的管線小檔。數字越大，預載範圍越大。
+const PIPE_TILE_PREFETCH_MARGIN=1;
+// 手機端最多保留幾個已讀取分區在記憶體。超過會保留目前畫面附近分區，清掉較舊快取。
+const PIPE_TILE_CACHE_MAX=60;
 // 點擊案件圖標時，自動縮放到接近比例尺 1:1000。
 // OGC / OpenLayers 常用 0.28mm 作為 CSS pixel 對應的比例尺換算基準。
 const RECORD_MARKER_TARGET_SCALE=1000;
@@ -693,10 +696,16 @@ let waterOlUserSource=null;
 let waterOlPopupOverlay=null;
 let waterOlWmsLayer=null;
 let waterOlBaseLayer=null;
-let waterOlGmlLoadPromise=null;
+let waterOlPipeManifest=null;
+let waterOlPipeManifestUrl='';
+let waterOlPipeManifestPromise=null;
+let waterOlPipeTileLoadPromise=null;
 let waterOlPipeLoaded=false;
 let waterOlPipeFeatureCount=0;
-let waterOlPipeSourceLabel='';
+let waterOlPipeTotalFeatureCount=0;
+let waterOlPipeSourceLabel='pipe_tiles';
+let waterOlPipeTileCache=new Map();
+let waterOlPipeVisibleTileIds=new Set();
 let waterOlMarkerFeatureMap=new Map();
 let waterOlStatusEl=null;
 let measureMapMarkerMap=new Map();
@@ -2331,123 +2340,180 @@ function hideWaterGisPopup(){
   if(container) container.style.display='none';
   if(waterOlPopupOverlay) waterOlPopupOverlay.setPosition(undefined);
 }
-function parsePipeGmlTextToFeatures(text){
-  const xml=new DOMParser().parseFromString(String(text||''),'application/xml');
-  if(xml.getElementsByTagName('parsererror').length) throw new Error('GML 解析失敗，請確認檔案格式');
-  const nodes=Array.from(xml.getElementsByTagNameNS('*','coordinates'));
-  if(!nodes.length) throw new Error('GML 內找不到 gml:coordinates 座標資料');
-  const features=[];
-  for(const node of nodes){
-    const coords=parseGmlCoordinatesText(node.textContent||'');
-    if(coords.length<2) continue;
-    const root=findFeatureRootFromNode(node);
-    const f=new ol.Feature({
-      geometry:new ol.geom.LineString(coords),
-      layerType:'pipe',
-      gid:getFirstTextByLocalName(root,'gid'),
-      unific_id:getFirstTextByLocalName(root,'unific_id'),
-      pipe_size:getFirstTextByLocalName(root,'pipe_size'),
-      pipe_mtr:getFirstTextByLocalName(root,'pipe_mtr'),
-      pipe_kind:getFirstTextByLocalName(root,'pipe_kind'),
-      min_depth:getFirstTextByLocalName(root,'min_depth'),
-      max_depth:getFirstTextByLocalName(root,'max_depth'),
-      bury_date:getFirstTextByLocalName(root,'bury_date')
-    });
-    features.push(f);
-  }
-  return features;
-}
-function applyPipeFeatures(features, sourceLabel='PIPE.gml'){
-  if(!waterOlPipeSource) return 0;
-  waterOlPipeSource.clear(true);
-  waterOlPipeSource.addFeatures(features||[]);
-  waterOlPipeLoaded=true;
-  waterOlPipeFeatureCount=features?features.length:0;
-  waterOlPipeSourceLabel=sourceLabel||'PIPE.gml';
-  refreshMapBaseToggleButton();
-  updateMapSummaryGmlCount();
-  if(waterOlPipeFeatureCount){
-    const msg=`已載入 ${waterOlPipeSourceLabel} 管線 ${waterOlPipeFeatureCount} 筆`;
-    setWaterGisStatus(msg, 4500);
-    toast(msg);
-  }else{
-    const msg=`${waterOlPipeSourceLabel} 沒有可顯示的線段`;
-    setWaterGisStatus(msg, 6500);
-    toast(msg);
-  }
-  return waterOlPipeFeatureCount;
-}
-function getPipeGmlUrlCandidates(){
-  const names=Array.from(new Set([PIPE_GML_URL,...PIPE_GML_URLS].filter(Boolean)));
+function getPipeTileManifestUrlCandidates(){
   const params=new URLSearchParams(location.search||'');
-  const custom=params.get('gml') || params.get('pipeGml') || params.get('pipe');
-  if(custom) names.unshift(custom);
+  const custom=params.get('pipeTiles') || params.get('tiles') || params.get('manifest');
+  const names=[];
+  if(custom) names.push(custom);
+  names.push(PIPE_TILE_MANIFEST_URL,'./pipe_tiles/manifest.json','pipe_tiles/manifest.json');
   const out=[];
-  for(const name of names){
-    if(!name) continue;
+  for(const name of Array.from(new Set(names.filter(Boolean)))){
     out.push(name);
     try{ out.push(new URL(name, document.baseURI || location.href).href); }catch(e){}
   }
   return Array.from(new Set(out));
 }
-function withCacheBuster(url){
+function withPipeCacheBuster(url){
   try{
     const u=new URL(url, document.baseURI || location.href);
-    u.searchParams.set('_gmlts', String(Date.now()));
+    u.searchParams.set('_pipets', String(Date.now()));
     return u.href;
   }catch(e){
     const sep=String(url).includes('?')?'&':'?';
-    return `${url}${sep}_gmlts=${Date.now()}`;
+    return `${url}${sep}_pipets=${Date.now()}`;
   }
 }
-async function fetchPipeGmlTextFromSameFolder(){
-  const candidates=getPipeGmlUrlCandidates();
+function resolvePipeTileUrl(file){
+  try{
+    const base=waterOlPipeManifestUrl || PIPE_TILE_MANIFEST_URL;
+    return new URL(String(file||''), new URL(base, document.baseURI || location.href)).href;
+  }catch(e){
+    return String(file||'');
+  }
+}
+async function loadPipeTileManifest(force=false){
+  if(waterOlPipeManifest && !force) return waterOlPipeManifest;
+  if(waterOlPipeManifestPromise && !force) return waterOlPipeManifestPromise;
   if(String(location.protocol||'').toLowerCase()==='file:'){
-    throw new Error('直接用 file:// 開啟 HTML 時，瀏覽器通常會禁止自動讀取同資料夾 PIPE.gml；請用 GitHub Pages 或本機伺服器開啟。');
+    const msg='直接用 file:// 開啟 HTML 時，瀏覽器通常會禁止讀取 pipe_tiles；請用 GitHub Pages 或本機伺服器開啟。';
+    setWaterGisStatus(msg,12000);
+    toast(msg);
+    return null;
   }
-  let lastErr=null;
-  for(const url of candidates){
-    try{
-      setWaterGisStatus(`嘗試讀取 GML：${url}`);
-      const resp=await fetch(withCacheBuster(url),{cache:'reload',credentials:'same-origin'});
-      if(!resp.ok){ lastErr=new Error(`${url} HTTP ${resp.status}`); continue; }
-      const text=await resp.text();
-      if(!String(text||'').trim()){ lastErr=new Error(`${url} 是空檔案`); continue; }
-      if(!/gml:coordinates|<coordinates/i.test(text.slice(0,1200000)) && !/gml:coordinates|<coordinates/i.test(text)){
-        lastErr=new Error(`${url} 不像 GML 管線檔`); continue;
+  waterOlPipeManifestPromise=(async()=>{
+    let lastErr=null;
+    for(const url of getPipeTileManifestUrlCandidates()){
+      try{
+        setWaterGisStatus(`讀取管線索引：${url}`);
+        const resp=await fetch(withPipeCacheBuster(url),{cache:'reload',credentials:'same-origin'});
+        if(!resp.ok){ lastErr=new Error(`${url} HTTP ${resp.status}`); continue; }
+        const manifest=await resp.json();
+        if(!manifest || !manifest.tiles || !manifest.tileSizeM){ lastErr=new Error(`${url} 格式不是 pipe_tiles manifest`); continue; }
+        waterOlPipeManifest=manifest;
+        waterOlPipeManifestUrl=url;
+        waterOlPipeTotalFeatureCount=Number(manifest.totalSourceFeatures || manifest.totalTileFeatures || 0) || 0;
+        waterOlPipeLoaded=true;
+        waterOlPipeSourceLabel='pipe_tiles';
+        const msg=`管線索引已載入：${Number(manifest.tileCount||Object.keys(manifest.tiles||{}).length)||0} 區`;
+        setWaterGisStatus(msg,3500);
+        updateMapSummaryGmlCount();
+        return manifest;
+      }catch(e){
+        lastErr=e;
       }
-      return {text,source:url};
-    }catch(e){
-      lastErr=e;
+    }
+    const msg=`讀取 pipe_tiles/manifest.json 失敗：${shortErr(lastErr||new Error('找不到索引檔'))}`;
+    setWaterGisStatus(msg,12000);
+    toast(msg);
+    return null;
+  })();
+  try{ return await waterOlPipeManifestPromise; }
+  finally{ waterOlPipeManifestPromise=null; }
+}
+function getPipeTileIdsForCurrentView(){
+  const manifest=waterOlPipeManifest;
+  if(!manifest || !manifest.tiles || !waterOlMap) return [];
+  const view=waterOlMap.getView();
+  const size=waterOlMap.getSize();
+  if(!view || !size) return [];
+  const extent=view.calculateExtent(size);
+  const tileSize=Number(manifest.tileSizeM)||1000;
+  const margin=Number(PIPE_TILE_PREFETCH_MARGIN)||0;
+  const minCol=Math.floor(extent[0]/tileSize)-margin;
+  const maxCol=Math.floor(extent[2]/tileSize)+margin;
+  const minRow=Math.floor(extent[1]/tileSize)-margin;
+  const maxRow=Math.floor(extent[3]/tileSize)+margin;
+  const tiles=manifest.tiles||{};
+  const ids=[];
+  const enc=v=>v<0?`n${Math.abs(v)}`:String(v);
+  for(let col=minCol; col<=maxCol; col++){
+    for(let row=minRow; row<=maxRow; row++){
+      const id=`tile_${enc(col)}_${enc(row)}`;
+      if(tiles[id]) ids.push(id);
     }
   }
-  throw new Error(`自動讀取同資料夾 PIPE.gml 失敗：${shortErr(lastErr||new Error('找不到檔案'))}。請確認 GitHub Pages 上實際檔名大小寫、HTML 與 PIPE.gml 是否在同一層，或在網址後加 ?gml=你的檔名.gml 指定檔案。`);
+  return ids;
 }
-async function loadPipeGmlLayer(force=false){
-  if(waterOlPipeLoaded && !force) return waterOlPipeFeatureCount;
-  if(waterOlGmlLoadPromise && !force) return waterOlGmlLoadPromise;
+function readPipeTileFeatures(geojson){
+  const fmt=new ol.format.GeoJSON();
+  const features=fmt.readFeatures(geojson,{dataProjection:'EPSG:3857',featureProjection:'EPSG:3857'});
+  features.forEach(f=>{
+    f.set('layerType','pipe',true);
+    if(!f.get('pipe_id')) f.set('pipe_id', f.get('unific_id') || f.get('gid') || Math.random().toString(36).slice(2), true);
+  });
+  return features;
+}
+async function fetchPipeTile(id){
+  if(waterOlPipeTileCache.has(id)) return waterOlPipeTileCache.get(id);
+  const manifest=waterOlPipeManifest;
+  const meta=manifest && manifest.tiles ? manifest.tiles[id] : null;
+  if(!meta || !meta.file) return [];
+  const url=resolvePipeTileUrl(meta.file);
+  const resp=await fetch(url,{cache:'force-cache',credentials:'same-origin'});
+  if(!resp.ok) throw new Error(`${meta.file} HTTP ${resp.status}`);
+  const geojson=await resp.json();
+  const features=readPipeTileFeatures(geojson);
+  waterOlPipeTileCache.set(id,{features,lastUsed:Date.now()});
+  return waterOlPipeTileCache.get(id);
+}
+function prunePipeTileCache(keepIds){
+  const max=Number(PIPE_TILE_CACHE_MAX)||60;
+  if(waterOlPipeTileCache.size<=max) return;
+  const keep=new Set(keepIds||[]);
+  const entries=Array.from(waterOlPipeTileCache.entries())
+    .filter(([id])=>!keep.has(id))
+    .sort((a,b)=>(a[1].lastUsed||0)-(b[1].lastUsed||0));
+  while(waterOlPipeTileCache.size>max && entries.length){
+    const [id]=entries.shift();
+    waterOlPipeTileCache.delete(id);
+  }
+}
+function renderVisiblePipeTiles(tileIds){
   if(!waterOlPipeSource) return 0;
-  waterOlGmlLoadPromise=(async()=>{
-    try{
-      setWaterGisStatus('自動讀取同資料夾 PIPE.gml 中…');
-      const loaded=await fetchPipeGmlTextFromSameFolder();
-      setWaterGisStatus('解析 PIPE.gml 管線圖層中…');
-      const features=parsePipeGmlTextToFeatures(loaded.text);
-      applyPipeFeatures(features, loaded.source||'PIPE.gml');
-      return waterOlPipeFeatureCount;
-    }catch(e){
-      waterOlPipeLoaded=false;
-      waterOlPipeFeatureCount=0;
-      refreshMapBaseToggleButton();
-      const msg=shortErr(e);
-      setWaterGisStatus(msg, 12000);
-      toast(msg);
-      return 0;
-    }finally{
-      waterOlGmlLoadPromise=null;
+  const seen=new Set();
+  const features=[];
+  for(const id of tileIds){
+    const cache=waterOlPipeTileCache.get(id);
+    if(!cache) continue;
+    cache.lastUsed=Date.now();
+    for(const f of cache.features||[]){
+      const fid=String(f.get('pipe_id') || f.get('unific_id') || f.get('gid') || '');
+      if(fid && seen.has(fid)) continue;
+      if(fid) seen.add(fid);
+      features.push(f);
     }
+  }
+  waterOlPipeSource.clear(true);
+  waterOlPipeSource.addFeatures(features);
+  waterOlPipeFeatureCount=features.length;
+  waterOlPipeVisibleTileIds=new Set(tileIds);
+  updateMapSummaryGmlCount();
+  return features.length;
+}
+async function updatePipeTilesForCurrentView(force=false){
+  if(!waterOlMap || !waterOlPipeSource) return 0;
+  const manifest=await loadPipeTileManifest(force);
+  if(!manifest) return 0;
+  const tileIds=getPipeTileIdsForCurrentView();
+  if(!force && tileIds.length===waterOlPipeVisibleTileIds.size && tileIds.every(id=>waterOlPipeVisibleTileIds.has(id))){
+    return waterOlPipeFeatureCount;
+  }
+  if(waterOlPipeTileLoadPromise && !force) return waterOlPipeTileLoadPromise;
+  waterOlPipeTileLoadPromise=(async()=>{
+    const missing=tileIds.filter(id=>!waterOlPipeTileCache.has(id));
+    if(missing.length) setWaterGisStatus(`載入附近管線分區 ${missing.length} 個…`);
+    for(const id of missing){
+      try{ await fetchPipeTile(id); }
+      catch(e){ console.warn('[PIPE_TILE] load failed', id, e); }
+    }
+    const count=renderVisiblePipeTiles(tileIds);
+    prunePipeTileCache(tileIds);
+    const total=waterOlPipeTotalFeatureCount||0;
+    setWaterGisStatus(total ? `目前顯示管線 ${count} / ${total} 筆` : `目前顯示管線 ${count} 筆`, 2500);
+    return count;
   })();
-  return waterOlGmlLoadPromise;
+  try{ return await waterOlPipeTileLoadPromise; }
+  finally{ waterOlPipeTileLoadPromise=null; }
 }
 function enforceWaterGisNorthUp(){
   if(!waterOlMap) return;
@@ -2553,6 +2619,9 @@ function initWaterGisMapShell(){
     }
     else if(picked.get('layerType')==='pipe') showWaterGisPopup(coord, buildPipeInfoHtml(picked));
   });
+  waterOlMap.on('moveend',()=>{
+    if(currentMapBaseMode==='watergis') updatePipeTilesForCurrentView();
+  });
 }
 function lockWaterGisNorthUp(){
   if(!waterOlMap) return;
@@ -2600,6 +2669,12 @@ function fitWaterGisView(points){
       ol.extent.extend(extent, pipeExtent);
       hasExtent=true;
     }
+  }else if((!points || !points.length) && waterOlPipeManifest && Array.isArray(waterOlPipeManifest.bbox)){
+    const b=waterOlPipeManifest.bbox;
+    if(b.length===4 && b.every(Number.isFinite)){
+      ol.extent.extend(extent,b);
+      hasExtent=true;
+    }
   }
   if(points&&points.length){
     points.forEach(r=>{
@@ -2625,10 +2700,11 @@ async function initWaterGisMeasureMap(points, emptyEl){
   setActiveMapEngine('watergis');
   refreshWaterGisMarkers(points);
   waterOlMap.updateSize();
-  const gmlCount=await loadPipeGmlLayer();
+  await loadPipeTileManifest();
   fitWaterGisView(points);
+  await updatePipeTilesForCurrentView();
   updateMapSummaryGmlCount();
-  if(!points.length && !gmlCount && emptyEl) emptyEl.style.display='block';
+  if(!points.length && !waterOlPipeFeatureCount && emptyEl) emptyEl.style.display='block';
   if(focusMapRecordId){
     setTimeout(()=>{
       const targetId=String(focusMapRecordId||'');

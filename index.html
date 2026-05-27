@@ -13,6 +13,7 @@
 <link rel="manifest" href="manifest.json">
 <title>管溝丈量系統</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v10.6.1/ol.css">
 <style>
 :root{
   --bg:#0d1117;--surface:#161b22;--surface2:#21262d;--border:#30363d;
@@ -315,7 +316,9 @@ html,body{height:100%}
 .map-card{background:transparent;border:none;border-radius:0;overflow:visible}
 .map-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0 10px}
 .map-sub{font-size:12px;color:var(--text2);line-height:1.7;margin-top:0;flex:1;min-width:0}
+.map-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-shrink:0;flex-wrap:wrap}
 .map-locate-btn{background:transparent!important;color:var(--text)!important;border:1px solid rgba(230,237,243,.75)!important;padding:6px 10px!important;font-size:11px!important;min-height:auto!important}
+.map-base-toggle-btn.active{background:var(--accent)!important;color:#000!important;border-color:var(--accent)!important;font-weight:700}
 
 /* 地圖高度自動符合不同手機螢幕 */
 #page-list{min-height:100vh;min-height:100dvh}
@@ -324,6 +327,20 @@ html,body{height:100%}
 #home-view-map.active .map-card{height:100%;display:flex;flex-direction:column;overflow:hidden}
 #home-view-map.active .map-head{flex:0 0 auto}
 #home-view-map.active #map-canvas{width:100%;flex:1 1 auto;min-height:0;background:var(--surface2);border-radius:12px}
+#map-canvas{position:relative;overflow:hidden}
+.map-engine{position:absolute;inset:0;width:100%;height:100%;display:none}
+.map-engine.active{display:block}
+.ol-control button{background:rgba(22,27,34,.88)!important;color:var(--text)!important;border:1px solid rgba(230,237,243,.35)!important}
+.ol-control button:hover{background:var(--accent)!important;color:#000!important}
+.ol-attribution{background:rgba(22,27,34,.78)!important;color:var(--text2)!important;border-radius:8px 0 0 0!important}
+.ol-attribution a{color:var(--blue)!important}
+.watergis-popup{position:absolute;background:#fff;border-radius:10px;border:1px solid #c6d1e0;box-shadow:0 6px 24px rgba(0,0,0,.28);padding:12px;min-width:260px;max-width:min(340px,88vw);transform:translate(-50%,calc(-100% - 14px));z-index:10}
+.watergis-popup:after{content:"";position:absolute;left:50%;bottom:-10px;transform:translateX(-50%);border-width:10px 8px 0 8px;border-style:solid;border-color:#fff transparent transparent transparent}
+.watergis-popup-closer{position:absolute;right:6px;top:6px;border:none;background:#eef2f7;color:#111;width:24px;height:24px;border-radius:50%;font-size:16px;line-height:20px;cursor:pointer}
+.watergis-popup .map-info{padding-right:14px}
+.watergis-loading{position:absolute;left:12px;bottom:12px;background:rgba(22,27,34,.92);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:9px;font-size:12px;z-index:9;display:none;max-width:calc(100% - 24px)}
+.watergis-loading.show{display:block}
+
 #home-view-map.active .map-inline-empty{flex:0 0 auto;padding:10px 12px 0;text-align:center;color:var(--text2);font-size:13px;line-height:1.8}
 
 /* 修正手機版：水號 / 丈量日期列寬度超出 */
@@ -371,7 +388,10 @@ html,body{height:100%}
       <div class="map-card">
         <div class="map-head">
           <div class="map-sub" id="map-summary">讀取地圖資料中…</div>
-          <button id="map-locate-btn" class="btn btn-sm map-locate-btn" onclick="locateMeOnMap()">📍 定位我</button>
+          <div class="map-actions">
+            <button id="map-base-toggle-btn" class="btn btn-sm map-locate-btn map-base-toggle-btn" onclick="toggleMapBaseMode()">台水圖資</button>
+            <button id="map-locate-btn" class="btn btn-sm map-locate-btn" onclick="locateMeOnMap()">📍 定位我</button>
+          </div>
         </div>
         <div id="map-canvas"></div>
         <div id="map-empty" class="map-inline-empty" style="display:none">
@@ -615,6 +635,8 @@ html,body{height:100%}
 
 <div class="toast" id="toast"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/proj4@2.9.2/dist/proj4.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ol@v10.6.1/dist/ol.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const DB='TrenchDB4',VER=1,ST='records';
@@ -623,6 +645,10 @@ const APP_CONFIG_KEY='TrenchSyncConfigV1';
 const MEASURE_CACHE_KEY='TrenchMeasureDraftCacheV1';
 const DEFAULT_SYNC_INTERVAL_MS=15000;
 const DRIVE_SCOPE='https://www.googleapis.com/auth/drive';
+const PIPE_GML_URL='PIPE.gml';
+const WATERGIS_WMS_URL='https://w3.water.gov.tw/gis/api/MapProxy';
+const WATERGIS_WMS_LAYER_CODE='GMLayer';
+
 
 let db;
 let editPhotos=[];
@@ -645,6 +671,27 @@ let measureMapMarkers=[];
 let measureMapInfo=null;
 let measureMapUserMarker=null;
 let googleMapsPromise=null;
+let googleMapDiv=null;
+let waterGisMapDiv=null;
+let currentMapBaseMode='google';
+let waterGisAuthWarned=false;
+let waterGisProjWarned=false;
+let waterGisOlWarned=false;
+let waterOlMap=null;
+let waterOlMarkerLayer=null;
+let waterOlMarkerSource=null;
+let waterOlPipeLayer=null;
+let waterOlPipeSource=null;
+let waterOlUserLayer=null;
+let waterOlUserSource=null;
+let waterOlPopupOverlay=null;
+let waterOlWmsLayer=null;
+let waterOlBaseLayer=null;
+let waterOlGmlLoadPromise=null;
+let waterOlPipeLoaded=false;
+let waterOlPipeFeatureCount=0;
+let waterOlMarkerFeatureMap=new Map();
+let waterOlStatusEl=null;
 let measureMapMarkerMap=new Map();
 let focusMapRecordId=null;
 let pendingMapToastRecordId='';
@@ -659,7 +706,7 @@ let driveTokenExpiresAt=0;
 let driveAuthPromise=null;
 let _tt;
 
-document.addEventListener('DOMContentLoaded', ()=>{ tryLockPortraitMode(); });
+document.addEventListener('DOMContentLoaded', ()=>{ tryLockPortraitMode(); refreshMapBaseToggleButton(); });
 window.addEventListener('orientationchange', ()=>{ setTimeout(()=>{ tryLockPortraitMode(); }, 80); });
 
 function openDB(){
@@ -1862,9 +1909,18 @@ function shouldShowMissingMapRecordToast(rec){
   return true;
 }
 function focusMapRecordById(id){
-  if(!id||!measureMapMarkerMap.has(id)){ return; }
-  const marker=measureMapMarkerMap.get(id);
+  if(!id) return;
   focusMapRecordId=id;
+  if(currentMapBaseMode==='watergis'){
+    const f=waterOlMarkerFeatureMap.get(String(id));
+    if(!f || !waterOlMap) return;
+    const coord=f.getGeometry().getCoordinates();
+    waterOlMap.getView().animate({center:coord,zoom:18,duration:220});
+    showWaterGisPopup(coord, buildMapInfoHtml(f.get('record')||{}));
+    return;
+  }
+  if(!measureMapMarkerMap.has(id)||!measureMap){ return; }
+  const marker=measureMapMarkerMap.get(id);
   measureMap.setCenter(marker.getPosition());
   measureMap.setZoom(18);
   google.maps.event.trigger(marker,'click');
@@ -1930,6 +1986,438 @@ async function openMeasureForm(encodedId){
   rememberListScroll();
   if(r.status==='pending') openAdd(r); else await editRecord();
 }
+
+function refreshMapBaseToggleButton(){
+  const btn=document.getElementById('map-base-toggle-btn');
+  if(!btn) return;
+  const isWater=currentMapBaseMode==='watergis';
+  btn.textContent=isWater?'Google地圖':'台水圖資';
+  btn.classList.toggle('active',isWater);
+  btn.setAttribute('aria-label',isWater?'切換為 Google 地圖':'切換為台水圖資');
+}
+function ensureMapContainers(canvas){
+  if(!canvas) return;
+  canvas.style.position='relative';
+  if(!document.getElementById('google-map-canvas') || !document.getElementById('watergis-map-canvas')){
+    canvas.innerHTML=`
+      <div id="google-map-canvas" class="map-engine"></div>
+      <div id="watergis-map-canvas" class="map-engine"></div>
+      <div id="watergis-loading" class="watergis-loading"></div>
+      <div id="watergis-popup" class="watergis-popup" style="display:none">
+        <button id="watergis-popup-closer" class="watergis-popup-closer" type="button">×</button>
+        <div id="watergis-popup-content"></div>
+      </div>`;
+  }
+  googleMapDiv=document.getElementById('google-map-canvas');
+  waterGisMapDiv=document.getElementById('watergis-map-canvas');
+  waterOlStatusEl=document.getElementById('watergis-loading');
+  setActiveMapEngine(currentMapBaseMode);
+}
+function setWaterGisStatus(text){
+  if(!waterOlStatusEl) return;
+  if(text){
+    waterOlStatusEl.textContent=text;
+    waterOlStatusEl.classList.add('show');
+  }else{
+    waterOlStatusEl.textContent='';
+    waterOlStatusEl.classList.remove('show');
+  }
+}
+function setActiveMapEngine(mode){
+  if(!googleMapDiv||!waterGisMapDiv) return;
+  const isWater=mode==='watergis';
+  googleMapDiv.classList.toggle('active',!isWater);
+  waterGisMapDiv.classList.toggle('active',isWater);
+  if(isWater){
+    setTimeout(()=>{ if(waterOlMap) waterOlMap.updateSize(); },80);
+  }else{
+    setTimeout(()=>{ if(window.google&&measureMap) google.maps.event.trigger(measureMap,'resize'); },80);
+  }
+}
+function setupProj4ForTaiwan(){
+  if(!window.proj4){
+    if(!waterGisProjWarned){
+      waterGisProjWarned=true;
+      setTimeout(()=>toast('proj4 載入失敗，台水圖資/GML 暫時無法換算座標'),80);
+    }
+    return false;
+  }
+  try{
+    if(!proj4.defs('EPSG:3826')){
+      proj4.defs('EPSG:3826','+proj=tmerc +lat_0=0 +lon_0=121 +k=0.9999 +x_0=250000 +y_0=0 +ellps=GRS80 +units=m +no_defs');
+    }
+    return true;
+  }catch(e){
+    if(!waterGisProjWarned){
+      waterGisProjWarned=true;
+      setTimeout(()=>toast('台水圖資座標系統初始化失敗'),80);
+    }
+    return false;
+  }
+}
+function ensureOpenLayersReady(){
+  if(window.ol && setupProj4ForTaiwan()) return true;
+  if(!waterGisOlWarned){
+    waterGisOlWarned=true;
+    setTimeout(()=>toast('OpenLayers 載入失敗，請確認網路連線'),80);
+  }
+  return false;
+}
+function googleTileToLonLatBounds(coord, zoom){
+  const n=Math.pow(2,zoom);
+  const west=coord.x/n*360-180;
+  const east=(coord.x+1)/n*360-180;
+  const northRad=Math.atan(Math.sinh(Math.PI*(1-2*coord.y/n)));
+  const southRad=Math.atan(Math.sinh(Math.PI*(1-2*(coord.y+1)/n)));
+  return {west,south:southRad*180/Math.PI,east,north:northRad*180/Math.PI};
+}
+function googleTileToEPSG3826BBox(coord, zoom){
+  if(!setupProj4ForTaiwan()) return '';
+  const b=googleTileToLonLatBounds(coord,zoom);
+  // 台灣附近才向台水 GIS 要圖，避免拖曳到海外時持續送無效請求。
+  if(b.east<118 || b.west>123 || b.north<20 || b.south>27) return '';
+  const p1=proj4('EPSG:4326','EPSG:3826',[b.west,b.south]);
+  const p2=proj4('EPSG:4326','EPSG:3826',[b.east,b.north]);
+  const minX=Math.min(p1[0],p2[0]);
+  const minY=Math.min(p1[1],p2[1]);
+  const maxX=Math.max(p1[0],p2[0]);
+  const maxY=Math.max(p1[1],p2[1]);
+  return `${minX},${minY},${maxX},${maxY}`;
+}
+function buildWaterGisWmsUrl(coord, zoom){
+  const bbox=googleTileToEPSG3826BBox(coord,zoom);
+  if(!bbox) return '';
+  const params=new URLSearchParams({
+    SERVICE:'WMS',
+    VERSION:'1.3.0',
+    REQUEST:'GetMap',
+    FORMAT:'image/png',
+    TRANSPARENT:'true',
+    layercode:WATERGIS_WMS_LAYER_CODE,
+    mapCode:'default',
+    requestType:'default',
+    serverCode:'ms',
+    WIDTH:'256',
+    HEIGHT:'256',
+    CRS:'EPSG:3826',
+    STYLES:'',
+    BBOX:bbox
+  });
+  return `${WATERGIS_WMS_URL}?${params.toString()}`;
+}
+function createNlscBaseLayer(){
+  return new ol.layer.Tile({
+    title:'國土測繪雲電子地圖',
+    source:new ol.source.XYZ({
+      maxZoom:22,
+      tileUrlFunction:function(tileCoord){
+        if(!tileCoord) return '';
+        const z=tileCoord[0],x=tileCoord[1],rawY=tileCoord[2];
+        const y=rawY<0 ? -rawY-1 : rawY;
+        return 'https://wmts.nlsc.gov.tw/wmts'
+          +'?layer=EMAP'
+          +'&style=_null'
+          +'&tilematrixset=EPSG:3857'
+          +'&Service=WMTS'
+          +'&Request=GetTile'
+          +'&Version=1.0.0'
+          +'&Format=image/png'
+          +'&TileMatrix='+z
+          +'&TileCol='+x
+          +'&TileRow='+y;
+      }
+    })
+  });
+}
+function createWaterWmsLayer(){
+  return new ol.layer.Tile({
+    title:'台水 WMS 圖層',
+    opacity:.92,
+    source:new ol.source.XYZ({
+      maxZoom:22,
+      tileUrlFunction:function(tileCoord){
+        if(!tileCoord) return '';
+        const z=tileCoord[0],x=tileCoord[1],rawY=tileCoord[2];
+        const y=rawY<0 ? -rawY-1 : rawY;
+        return buildWaterGisWmsUrl({x,y},z);
+      }
+    })
+  });
+}
+function twd97ToLonLat(x,y){
+  if(!setupProj4ForTaiwan()) return null;
+  const out=proj4('EPSG:3826','EPSG:4326',[+x,+y]);
+  if(!out||!Number.isFinite(out[0])||!Number.isFinite(out[1])) return null;
+  return out;
+}
+function twd97ToWebMercator(x,y){
+  const lonlat=twd97ToLonLat(x,y);
+  return lonlat ? ol.proj.fromLonLat(lonlat) : null;
+}
+function parseGmlCoordinatesText(text){
+  const tokens=String(text||'').trim().split(/\s+/).filter(Boolean);
+  const coords=[];
+  for(const token of tokens){
+    const parts=token.split(',');
+    if(parts.length<2) continue;
+    const x=parseFloat(parts[0]);
+    const y=parseFloat(parts[1]);
+    if(!Number.isFinite(x)||!Number.isFinite(y)) continue;
+    // 這份 PIPE.gml 標成 EPSG:4326，但實際是 TWD97/TM2(EPSG:3826) 公尺座標，所以固定從 3826 轉 3857。
+    const wm=twd97ToWebMercator(x,y);
+    if(wm) coords.push(wm);
+  }
+  return coords;
+}
+function getFirstTextByLocalName(root, localName){
+  if(!root) return '';
+  const nodes=root.getElementsByTagNameNS('*',localName);
+  return nodes&&nodes.length ? String(nodes[0].textContent||'').trim() : '';
+}
+function findFeatureRootFromNode(node){
+  let p=node;
+  while(p&&p.nodeType===1){
+    const ln=String(p.localName||'').toLowerCase();
+    if(ln==='sql_statement'||ln==='featuremember') return p;
+    p=p.parentNode;
+  }
+  return node&&node.parentNode ? node.parentNode : null;
+}
+function getPipeStyle(feature){
+  const size=Number(feature.get('pipe_size'))||0;
+  const material=String(feature.get('pipe_mtr')||'').toUpperCase();
+  let color='#00c2ff';
+  if(material.includes('DIP')) color='#f0a500';
+  else if(material.includes('PVC')) color='#58a6ff';
+  else if(material.includes('SP')) color='#bc8cff';
+  const width=Math.max(2,Math.min(7,Math.round(size/75)||2));
+  return new ol.style.Style({
+    stroke:new ol.style.Stroke({color,width})
+  });
+}
+function getRecordMarkerStyle(feature){
+  const r=feature.get('record')||{};
+  const fill=needsAnySync(r)?'#9aa0a6':'#ea4335';
+  return new ol.style.Style({
+    image:new ol.style.Circle({
+      radius:8,
+      fill:new ol.style.Fill({color:fill}),
+      stroke:new ol.style.Stroke({color:'#ffffff',width:2})
+    })
+  });
+}
+function getUserMarkerStyle(){
+  return new ol.style.Style({
+    image:new ol.style.Circle({
+      radius:9,
+      fill:new ol.style.Fill({color:'#1a73e8'}),
+      stroke:new ol.style.Stroke({color:'#ffffff',width:3})
+    })
+  });
+}
+function buildPipeInfoHtml(feature){
+  return `<div class="map-info">
+    <div class="map-info-title">台水管線</div>
+    <div class="map-info-row"><b>管徑：</b>${esc(feature.get('pipe_size')||'—')}</div>
+    <div class="map-info-row"><b>材質：</b>${esc(feature.get('pipe_mtr')||'—')}</div>
+    <div class="map-info-row"><b>管線編號：</b>${esc(feature.get('unific_id')||feature.get('gid')||'—')}</div>
+    <div class="map-info-row"><b>深度：</b>${esc(feature.get('min_depth')||'—')} ～ ${esc(feature.get('max_depth')||'—')}</div>
+    <div class="map-info-row"><b>埋設日期：</b>${esc(feature.get('bury_date')||'—')}</div>
+  </div>`;
+}
+function ensureWaterGisPopupOverlay(){
+  if(!waterOlMap) return null;
+  const container=document.getElementById('watergis-popup');
+  const closer=document.getElementById('watergis-popup-closer');
+  if(!container) return null;
+  if(!waterOlPopupOverlay){
+    waterOlPopupOverlay=new ol.Overlay({element:container,autoPan:{animation:{duration:220}}});
+    waterOlMap.addOverlay(waterOlPopupOverlay);
+  }
+  if(closer && !closer.__binded){
+    closer.__binded=true;
+    closer.onclick=()=>{
+      container.style.display='none';
+      waterOlPopupOverlay.setPosition(undefined);
+      return false;
+    };
+  }
+  return waterOlPopupOverlay;
+}
+function showWaterGisPopup(coord, html){
+  const overlay=ensureWaterGisPopupOverlay();
+  const container=document.getElementById('watergis-popup');
+  const content=document.getElementById('watergis-popup-content');
+  if(!overlay||!container||!content) return;
+  content.innerHTML=html;
+  container.style.display='block';
+  overlay.setPosition(coord);
+}
+function hideWaterGisPopup(){
+  const container=document.getElementById('watergis-popup');
+  if(container) container.style.display='none';
+  if(waterOlPopupOverlay) waterOlPopupOverlay.setPosition(undefined);
+}
+async function loadPipeGmlLayer(){
+  if(waterOlPipeLoaded) return waterOlPipeFeatureCount;
+  if(waterOlGmlLoadPromise) return waterOlGmlLoadPromise;
+  if(!waterOlPipeSource) return 0;
+  waterOlGmlLoadPromise=(async()=>{
+    try{
+      setWaterGisStatus('載入 PIPE.gml 管線圖層中…');
+      const resp=await fetch(PIPE_GML_URL,{cache:'force-cache'});
+      if(!resp.ok) throw new Error(`讀取 ${PIPE_GML_URL} 失敗：HTTP ${resp.status}`);
+      const text=await resp.text();
+      const xml=new DOMParser().parseFromString(text,'application/xml');
+      if(xml.getElementsByTagName('parsererror').length) throw new Error('PIPE.gml 解析失敗，請確認檔案格式');
+      const nodes=Array.from(xml.getElementsByTagNameNS('*','coordinates'));
+      const features=[];
+      for(const node of nodes){
+        const coords=parseGmlCoordinatesText(node.textContent||'');
+        if(coords.length<2) continue;
+        const root=findFeatureRootFromNode(node);
+        const f=new ol.Feature({
+          geometry:new ol.geom.LineString(coords),
+          layerType:'pipe',
+          gid:getFirstTextByLocalName(root,'gid'),
+          unific_id:getFirstTextByLocalName(root,'unific_id'),
+          pipe_size:getFirstTextByLocalName(root,'pipe_size'),
+          pipe_mtr:getFirstTextByLocalName(root,'pipe_mtr'),
+          pipe_kind:getFirstTextByLocalName(root,'pipe_kind'),
+          min_depth:getFirstTextByLocalName(root,'min_depth'),
+          max_depth:getFirstTextByLocalName(root,'max_depth'),
+          bury_date:getFirstTextByLocalName(root,'bury_date')
+        });
+        features.push(f);
+      }
+      waterOlPipeSource.clear(true);
+      waterOlPipeSource.addFeatures(features);
+      waterOlPipeLoaded=true;
+      waterOlPipeFeatureCount=features.length;
+      setWaterGisStatus('');
+      if(features.length){
+        toast(`已載入 GML 管線 ${features.length} 筆`);
+      }else{
+        toast('PIPE.gml 沒有可顯示的線段');
+      }
+      return features.length;
+    }catch(e){
+      setWaterGisStatus('');
+      toast(shortErr(e));
+      return 0;
+    }finally{
+      waterOlGmlLoadPromise=null;
+    }
+  })();
+  return waterOlGmlLoadPromise;
+}
+function initWaterGisMapShell(){
+  if(waterOlMap) return;
+  waterOlBaseLayer=createNlscBaseLayer();
+  waterOlWmsLayer=createWaterWmsLayer();
+  waterOlPipeSource=new ol.source.Vector();
+  waterOlPipeLayer=new ol.layer.Vector({
+    title:'PIPE.gml 管線',
+    source:waterOlPipeSource,
+    style:getPipeStyle,
+    declutter:false
+  });
+  waterOlMarkerSource=new ol.source.Vector();
+  waterOlMarkerLayer=new ol.layer.Vector({
+    title:'丈量案件',
+    source:waterOlMarkerSource,
+    style:getRecordMarkerStyle
+  });
+  waterOlUserSource=new ol.source.Vector();
+  waterOlUserLayer=new ol.layer.Vector({
+    title:'目前位置',
+    source:waterOlUserSource,
+    style:getUserMarkerStyle
+  });
+  const defaultControls=(ol.control.defaults && typeof ol.control.defaults.defaults==='function')
+    ? ol.control.defaults.defaults({attribution:true,zoom:true,rotate:false})
+    : (typeof ol.control.defaults==='function' ? ol.control.defaults({attribution:true,zoom:true,rotate:false}) : null);
+  waterOlMap=new ol.Map({
+    target:waterGisMapDiv,
+    layers:[waterOlBaseLayer,waterOlWmsLayer,waterOlPipeLayer,waterOlMarkerLayer,waterOlUserLayer],
+    view:new ol.View({center:ol.proj.fromLonLat([120.9605,23.6978]),zoom:8,minZoom:7,maxZoom:22}),
+    controls:defaultControls ? defaultControls.extend([new ol.control.ScaleLine()]) : undefined
+  });
+  ensureWaterGisPopupOverlay();
+  waterOlMap.on('singleclick',(evt)=>{
+    let picked=null;
+    waterOlMap.forEachFeatureAtPixel(evt.pixel,(feature)=>{picked=feature;return true;},{hitTolerance:7});
+    if(!picked){hideWaterGisPopup();return;}
+    const geom=picked.getGeometry();
+    const coord=geom instanceof ol.geom.Point ? geom.getCoordinates() : evt.coordinate;
+    if(picked.get('layerType')==='record') showWaterGisPopup(coord, buildMapInfoHtml(picked.get('record')||{}));
+    else if(picked.get('layerType')==='pipe') showWaterGisPopup(coord, buildPipeInfoHtml(picked));
+  });
+  if(!waterGisAuthWarned){
+    waterGisAuthWarned=true;
+    setTimeout(()=>toast('台水 WMS 圖層若未授權，仍會顯示國土測繪雲底圖與 PIPE.gml'),300);
+  }
+}
+function refreshWaterGisMarkers(points){
+  waterOlMarkerFeatureMap.clear();
+  if(!waterOlMarkerSource) return;
+  const features=[];
+  points.forEach(r=>{
+    const coord=ol.proj.fromLonLat([+r.lng,+r.lat]);
+    const f=new ol.Feature({geometry:new ol.geom.Point(coord),layerType:'record',record:r,recordId:String(r.id||'')});
+    features.push(f);
+    waterOlMarkerFeatureMap.set(String(r.id||''),f);
+  });
+  waterOlMarkerSource.clear(true);
+  waterOlMarkerSource.addFeatures(features);
+}
+function fitWaterGisView(points){
+  if(!waterOlMap) return;
+  const view=waterOlMap.getView();
+  const extent=ol.extent.createEmpty();
+  if(points&&points.length){
+    points.forEach(r=>ol.extent.extend(extent,ol.extent.boundingExtent([ol.proj.fromLonLat([+r.lng,+r.lat])])));
+    view.fit(extent,{padding:[55,55,55,55],maxZoom:points.length===1?18:19,duration:220});
+    return;
+  }
+  if(waterOlPipeSource && waterOlPipeSource.getFeatures().length){
+    const pipeExtent=waterOlPipeSource.getExtent();
+    if(pipeExtent && !ol.extent.isEmpty(pipeExtent)) view.fit(pipeExtent,{padding:[35,35,35,35],maxZoom:18,duration:220});
+  }else{
+    view.setCenter(ol.proj.fromLonLat([120.9605,23.6978]));
+    view.setZoom(8);
+  }
+}
+async function initWaterGisMeasureMap(points, emptyEl){
+  if(!ensureOpenLayersReady()){
+    if(emptyEl){ emptyEl.style.display='block'; emptyEl.innerHTML='⚠️ OpenLayers / proj4 載入失敗，無法顯示台水圖資。'; }
+    return;
+  }
+  initWaterGisMapShell();
+  setActiveMapEngine('watergis');
+  refreshWaterGisMarkers(points);
+  waterOlMap.updateSize();
+  const gmlCount=await loadPipeGmlLayer();
+  fitWaterGisView(points);
+  if(!points.length && !gmlCount && emptyEl) emptyEl.style.display='block';
+  if(focusMapRecordId){
+    setTimeout(()=>{
+      const targetId=String(focusMapRecordId||'');
+      if(waterOlMarkerFeatureMap.has(targetId)){
+        focusMapRecordById(targetId);
+      }else if(pendingMapToastRecordId && pendingMapToastRecordId===targetId){
+        toast('此案件目前不會顯示在丈量地圖上');
+      }
+      focusMapRecordId=null;
+      pendingMapToastRecordId='';
+    },180);
+  }
+}
+function clearGoogleMarkers(){
+  measureMapMarkers.forEach(m=>m.setMap(null));
+  measureMapMarkers=[];
+  measureMapMarkerMap.clear();
+}
 function ensureUserMarker(){
   if(!measureMap || !window.google) return null;
   if(!measureMapUserMarker){
@@ -1942,64 +2430,23 @@ function ensureUserMarker(){
   }
   return measureMapUserMarker;
 }
-async function locateMeOnMap(){
-  const btn=document.getElementById('map-locate-btn');
-  if(!navigator.geolocation){toast('此裝置不支援定位');return;}
-  if(btn) btn.disabled=true;
-  try{
-    await ensureGoogleMaps();
-    if(!measureMap) await initMeasureMap();
-    const pos=await new Promise((resolve,reject)=>{
-      navigator.geolocation.getCurrentPosition(resolve,reject,{enableHighAccuracy:true,timeout:10000,maximumAge:0});
-    });
-    const lat=+pos.coords.latitude,lng=+pos.coords.longitude;
-    if(!isValidGps(lat,lng)) throw new Error('定位結果無效');
-    const marker=ensureUserMarker();
-    if(marker) marker.setPosition({lat,lng});
-    if(measureMap){ measureMap.setCenter({lat,lng}); measureMap.setZoom(18); }
-    if(measureMapInfo && marker){
-      measureMapInfo.setContent('<div class="map-info"><div class="map-info-title">目前位置</div><div class="map-info-row">已回到你的定位點。</div></div>');
-      measureMapInfo.open({map:measureMap,anchor:marker});
-    }
-    toast('已定位到你目前的位置');
-  }catch(e){
-    toast(shortErr(e));
-  }finally{ if(btn) btn.disabled=false; }
-}
-async function initMeasureMap(){
-  const summaryEl=document.getElementById('map-summary');
-  const canvas=document.getElementById('map-canvas');
-  const emptyEl=document.getElementById('map-empty');
-  const kw=getHomeSearchValue();
-  if(!summaryEl||!canvas||!emptyEl) return;
-  summaryEl.textContent='讀取地圖資料中…';
-  const all=(await getAllLocal()).filter(r=>!r.deleted);
-  const pendingMeasure=all.filter(r=>r.status==='pending');
-  const pendingSync=all.filter(r=>r.status!=='pending' && needsAnySync(r));
-  const visibleRecords=all.filter(r=>r.status==='pending' || needsAnySync(r));
-  const filteredRecords=kw?visibleRecords.filter(r=>recordMatchesKeyword(r,kw)):visibleRecords;
-  const points=filteredRecords.filter(r=>isValidGps(r.lat,r.lng));
-  summaryEl.textContent=`待丈量 ${pendingMeasure.length} 筆、待同步 ${pendingSync.length} 筆；已定位 ${points.length} 筆`;
-  canvas.style.display='block';
-  emptyEl.style.display='none';
-  emptyEl.innerHTML=kw
-    ? `目前沒有符合搜尋的案件。<br>請調整搜尋條件，或清空搜尋框查看全部案件。`
-    : `目前沒有可定位的案件`;
+async function initGoogleMeasureMap(points, emptyEl){
   try{ await ensureGoogleMaps(); }
   catch(e){
-    canvas.style.display='none';
-    emptyEl.style.display='block';
-    emptyEl.innerHTML=`⚠️ 地圖載入失敗。<br>${esc(e.message)}`;
+    if(emptyEl){
+      if(googleMapDiv) googleMapDiv.style.display='none';
+      emptyEl.style.display='block';
+      emptyEl.innerHTML=`⚠️ Google 地圖載入失敗。<br>${esc(e.message)}`;
+    }
     return;
   }
+  setActiveMapEngine('google');
   if(!measureMap){
-    measureMap=new google.maps.Map(canvas,{center:points.length?{lat:+points[0].lat,lng:+points[0].lng}:{lat:23.6978,lng:120.9605},zoom:points.length?16:7,mapTypeControl:false,streetViewControl:false,fullscreenControl:true});
+    measureMap=new google.maps.Map(googleMapDiv,{center:points.length?{lat:+points[0].lat,lng:+points[0].lng}:{lat:23.6978,lng:120.9605},zoom:points.length?16:7,mapTypeControl:false,streetViewControl:false,fullscreenControl:true});
     measureMapInfo=new google.maps.InfoWindow();
   }
-  measureMapMarkers.forEach(m=>m.setMap(null));
-  measureMapMarkers=[];
-  measureMapMarkerMap.clear();
-  if(!points.length){ emptyEl.style.display='block'; return; }
+  clearGoogleMarkers();
+  if(!points.length){ if(emptyEl) emptyEl.style.display='block'; return; }
   const bounds=new google.maps.LatLngBounds();
   points.forEach(r=>{
     const pos={lat:+r.lat,lng:+r.lng};
@@ -2032,6 +2479,83 @@ async function initMeasureMap(){
   }
   setTimeout(()=>{ if(window.google&&measureMap) google.maps.event.trigger(measureMap,'resize'); },100);
 }
+function toggleMapBaseMode(){
+  currentMapBaseMode=currentMapBaseMode==='watergis'?'google':'watergis';
+  refreshMapBaseToggleButton();
+  if(document.getElementById('page-list')?.classList.contains('active')&&homeTab==='map'){
+    initMeasureMap().then(()=>toast(currentMapBaseMode==='watergis'?'已切換為台水圖資':'已切換為 Google 地圖'));
+  }
+}
+async function locateMeOnMap(){
+  const btn=document.getElementById('map-locate-btn');
+  if(!navigator.geolocation){toast('此裝置不支援定位');return;}
+  if(btn) btn.disabled=true;
+  try{
+    if(currentMapBaseMode==='watergis'){
+      if(!waterOlMap) await initMeasureMap();
+      if(!waterOlMap) throw new Error('台水圖資尚未載入完成');
+      const pos=await new Promise((resolve,reject)=>{
+        navigator.geolocation.getCurrentPosition(resolve,reject,{enableHighAccuracy:true,timeout:10000,maximumAge:0});
+      });
+      const lat=+pos.coords.latitude,lng=+pos.coords.longitude;
+      if(!isValidGps(lat,lng)) throw new Error('定位結果無效');
+      const coord=ol.proj.fromLonLat([lng,lat]);
+      waterOlUserSource.clear(true);
+      waterOlUserSource.addFeature(new ol.Feature({geometry:new ol.geom.Point(coord),layerType:'user'}));
+      waterOlMap.getView().animate({center:coord,zoom:18,duration:220});
+      showWaterGisPopup(coord,'<div class="map-info"><div class="map-info-title">目前位置</div><div class="map-info-row">已回到你的定位點。</div></div>');
+      toast('已定位到你目前的位置');
+      return;
+    }
+    await ensureGoogleMaps();
+    if(!measureMap) await initMeasureMap();
+    const pos=await new Promise((resolve,reject)=>{
+      navigator.geolocation.getCurrentPosition(resolve,reject,{enableHighAccuracy:true,timeout:10000,maximumAge:0});
+    });
+    const lat=+pos.coords.latitude,lng=+pos.coords.longitude;
+    if(!isValidGps(lat,lng)) throw new Error('定位結果無效');
+    const marker=ensureUserMarker();
+    if(marker) marker.setPosition({lat,lng});
+    if(measureMap){ measureMap.setCenter({lat,lng}); measureMap.setZoom(18); }
+    if(measureMapInfo && marker){
+      measureMapInfo.setContent('<div class="map-info"><div class="map-info-title">目前位置</div><div class="map-info-row">已回到你的定位點。</div></div>');
+      measureMapInfo.open({map:measureMap,anchor:marker});
+    }
+    toast('已定位到你目前的位置');
+  }catch(e){
+    toast(shortErr(e));
+  }finally{ if(btn) btn.disabled=false; }
+}
+async function initMeasureMap(){
+  const summaryEl=document.getElementById('map-summary');
+  const canvas=document.getElementById('map-canvas');
+  const emptyEl=document.getElementById('map-empty');
+  const kw=getHomeSearchValue();
+  if(!summaryEl||!canvas||!emptyEl) return;
+  summaryEl.textContent='讀取地圖資料中…';
+  ensureMapContainers(canvas);
+  const all=(await getAllLocal()).filter(r=>!r.deleted);
+  const pendingMeasure=all.filter(r=>r.status==='pending');
+  const pendingSync=all.filter(r=>r.status!=='pending' && needsAnySync(r));
+  const visibleRecords=all.filter(r=>r.status==='pending' || needsAnySync(r));
+  const filteredRecords=kw?visibleRecords.filter(r=>recordMatchesKeyword(r,kw)):visibleRecords;
+  const points=filteredRecords.filter(r=>isValidGps(r.lat,r.lng));
+  const gmlNote=currentMapBaseMode==='watergis' ? `、GML管線 ${waterOlPipeFeatureCount||'載入中'} 筆` : '';
+  summaryEl.textContent=`待丈量 ${pendingMeasure.length} 筆、待同步 ${pendingSync.length} 筆；已定位 ${points.length} 筆${gmlNote}`;
+  canvas.style.display='block';
+  emptyEl.style.display='none';
+  emptyEl.innerHTML=kw
+    ? `目前沒有符合搜尋的案件。<br>請調整搜尋條件，或清空搜尋框查看全部案件。`
+    : `目前沒有可定位的案件`;
+  refreshMapBaseToggleButton();
+  if(currentMapBaseMode==='watergis'){
+    await initWaterGisMeasureMap(points, emptyEl);
+    summaryEl.textContent=`待丈量 ${pendingMeasure.length} 筆、待同步 ${pendingSync.length} 筆；已定位 ${points.length} 筆、GML管線 ${waterOlPipeFeatureCount} 筆`;
+    return;
+  }
+  await initGoogleMeasureMap(points, emptyEl);
+}
+
 
 function openAdd(prefill=null){
   rememberListScroll();

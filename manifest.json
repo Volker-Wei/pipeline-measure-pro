@@ -1,7 +1,7 @@
 {
-  "name": "管溝丈量系統",
-  "short_name": "管溝丈量",
-  "description": "管溝丈量、照片、地圖定位與 Google Drive 同步系統",
+  "name": "管溝測量系統",
+  "short_name": "管溝測量",
+  "description": "管溝測量、照片、地圖定位與 Google Drive 同步系統",
   "id": "/pipeline-measure-pro/",
   "start_url": "./",
   "scope": "./",

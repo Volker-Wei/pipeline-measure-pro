@@ -330,6 +330,8 @@ html,body{height:100%}
 #map-canvas{position:relative;overflow:hidden}
 .map-engine{position:absolute;inset:0;width:100%;height:100%;display:none}
 .map-engine.active{display:block}
+#watergis-map-canvas,#watergis-map-canvas .ol-viewport,#watergis-map-canvas canvas{touch-action:none!important}
+#watergis-map-canvas .ol-rotate{display:none!important}
 .ol-control button{background:rgba(22,27,34,.88)!important;color:var(--text)!important;border:1px solid rgba(230,237,243,.35)!important}
 .ol-control button:hover{background:var(--accent)!important;color:#000!important}
 .ol-attribution{background:rgba(22,27,34,.78)!important;color:var(--text2)!important;border-radius:8px 0 0 0!important}
@@ -390,6 +392,9 @@ html,body{height:100%}
           <div class="map-sub" id="map-summary">讀取地圖資料中…</div>
           <div class="map-actions">
             <button id="map-base-toggle-btn" class="btn btn-sm map-locate-btn map-base-toggle-btn" onclick="toggleMapBaseMode()">台水圖資</button>
+            <button id="map-gml-fit-btn" class="btn btn-sm map-locate-btn" onclick="fitWaterGisToPipeLayer()" style="display:none">管線定位</button>
+            <button id="map-gml-import-btn" class="btn btn-sm map-locate-btn" onclick="triggerPipeGmlImport()" style="display:none">匯入GML</button>
+            <input id="pipe-gml-file-input" type="file" accept=".gml,.xml,text/xml,application/gml+xml" style="display:none" onchange="handlePipeGmlFileImport(this)">
             <button id="map-locate-btn" class="btn btn-sm map-locate-btn" onclick="locateMeOnMap()">📍 定位我</button>
           </div>
         </div>
@@ -646,6 +651,7 @@ const MEASURE_CACHE_KEY='TrenchMeasureDraftCacheV1';
 const DEFAULT_SYNC_INTERVAL_MS=15000;
 const DRIVE_SCOPE='https://www.googleapis.com/auth/drive';
 const PIPE_GML_URL='PIPE.gml';
+const PIPE_GML_URLS=['PIPE.gml','./PIPE.gml','PIPE.GML','pipe.gml','Pipe.gml'];
 const WATERGIS_WMS_URL='https://w3.water.gov.tw/gis/api/MapProxy';
 const WATERGIS_WMS_LAYER_CODE='GMLayer';
 
@@ -690,6 +696,7 @@ let waterOlBaseLayer=null;
 let waterOlGmlLoadPromise=null;
 let waterOlPipeLoaded=false;
 let waterOlPipeFeatureCount=0;
+let waterOlPipeSourceLabel='';
 let waterOlMarkerFeatureMap=new Map();
 let waterOlStatusEl=null;
 let measureMapMarkerMap=new Map();
@@ -1916,6 +1923,7 @@ function focusMapRecordById(id){
     if(!f || !waterOlMap) return;
     const coord=f.getGeometry().getCoordinates();
     waterOlMap.getView().animate({center:coord,zoom:18,duration:220});
+    setTimeout(lockWaterGisNorthUp,260);
     showWaterGisPopup(coord, buildMapInfoHtml(f.get('record')||{}));
     return;
   }
@@ -1989,11 +1997,15 @@ async function openMeasureForm(encodedId){
 
 function refreshMapBaseToggleButton(){
   const btn=document.getElementById('map-base-toggle-btn');
+  const gmlBtn=document.getElementById('map-gml-import-btn');
+  const fitBtn=document.getElementById('map-gml-fit-btn');
   if(!btn) return;
   const isWater=currentMapBaseMode==='watergis';
   btn.textContent=isWater?'Google地圖':'台水圖資';
   btn.classList.toggle('active',isWater);
   btn.setAttribute('aria-label',isWater?'切換為 Google 地圖':'切換為台水圖資');
+  if(gmlBtn) gmlBtn.style.display=isWater?'flex':'none';
+  if(fitBtn) fitBtn.style.display=(isWater && waterOlPipeFeatureCount>0)?'flex':'none';
 }
 function ensureMapContainers(canvas){
   if(!canvas) return;
@@ -2013,14 +2025,28 @@ function ensureMapContainers(canvas){
   waterOlStatusEl=document.getElementById('watergis-loading');
   setActiveMapEngine(currentMapBaseMode);
 }
-function setWaterGisStatus(text){
+function setWaterGisStatus(text, autoHideMs=0){
   if(!waterOlStatusEl) return;
   if(text){
     waterOlStatusEl.textContent=text;
     waterOlStatusEl.classList.add('show');
+    if(autoHideMs){
+      const expected=String(text);
+      setTimeout(()=>{
+        if(waterOlStatusEl && waterOlStatusEl.textContent===expected) setWaterGisStatus('');
+      }, autoHideMs);
+    }
   }else{
     waterOlStatusEl.textContent='';
     waterOlStatusEl.classList.remove('show');
+  }
+}
+function updateMapSummaryGmlCount(){
+  const summaryEl=document.getElementById('map-summary');
+  if(!summaryEl || currentMapBaseMode!=='watergis') return;
+  const txt=summaryEl.textContent||'';
+  if(/GML管線\s*[^；,，]*筆/.test(txt)){
+    summaryEl.textContent=txt.replace(/GML管線\s*[^；,，]*筆/, `GML管線 ${waterOlPipeFeatureCount} 筆`);
   }
 }
 function setActiveMapEngine(mode){
@@ -2110,6 +2136,7 @@ function createNlscBaseLayer(){
     title:'國土測繪雲電子地圖',
     source:new ol.source.XYZ({
       maxZoom:22,
+      crossOrigin:'anonymous',
       tileUrlFunction:function(tileCoord){
         if(!tileCoord) return '';
         const z=tileCoord[0],x=tileCoord[1],rawY=tileCoord[2];
@@ -2135,6 +2162,7 @@ function createWaterWmsLayer(){
     opacity:.92,
     source:new ol.source.XYZ({
       maxZoom:22,
+      crossOrigin:'anonymous',
       tileUrlFunction:function(tileCoord){
         if(!tileCoord) return '';
         const z=tileCoord[0],x=tileCoord[1],rawY=tileCoord[2];
@@ -2258,58 +2286,222 @@ function hideWaterGisPopup(){
   if(container) container.style.display='none';
   if(waterOlPopupOverlay) waterOlPopupOverlay.setPosition(undefined);
 }
-async function loadPipeGmlLayer(){
-  if(waterOlPipeLoaded) return waterOlPipeFeatureCount;
-  if(waterOlGmlLoadPromise) return waterOlGmlLoadPromise;
+function parsePipeGmlTextToFeatures(text){
+  const xml=new DOMParser().parseFromString(String(text||''),'application/xml');
+  if(xml.getElementsByTagName('parsererror').length) throw new Error('GML 解析失敗，請確認檔案格式');
+  const nodes=Array.from(xml.getElementsByTagNameNS('*','coordinates'));
+  if(!nodes.length) throw new Error('GML 內找不到 gml:coordinates 座標資料');
+  const features=[];
+  for(const node of nodes){
+    const coords=parseGmlCoordinatesText(node.textContent||'');
+    if(coords.length<2) continue;
+    const root=findFeatureRootFromNode(node);
+    const f=new ol.Feature({
+      geometry:new ol.geom.LineString(coords),
+      layerType:'pipe',
+      gid:getFirstTextByLocalName(root,'gid'),
+      unific_id:getFirstTextByLocalName(root,'unific_id'),
+      pipe_size:getFirstTextByLocalName(root,'pipe_size'),
+      pipe_mtr:getFirstTextByLocalName(root,'pipe_mtr'),
+      pipe_kind:getFirstTextByLocalName(root,'pipe_kind'),
+      min_depth:getFirstTextByLocalName(root,'min_depth'),
+      max_depth:getFirstTextByLocalName(root,'max_depth'),
+      bury_date:getFirstTextByLocalName(root,'bury_date')
+    });
+    features.push(f);
+  }
+  return features;
+}
+function applyPipeFeatures(features, sourceLabel='PIPE.gml'){
+  if(!waterOlPipeSource) return 0;
+  waterOlPipeSource.clear(true);
+  waterOlPipeSource.addFeatures(features||[]);
+  waterOlPipeLoaded=true;
+  waterOlPipeFeatureCount=features?features.length:0;
+  waterOlPipeSourceLabel=sourceLabel||'PIPE.gml';
+  refreshMapBaseToggleButton();
+  updateMapSummaryGmlCount();
+  if(waterOlPipeFeatureCount){
+    const msg=`已載入 ${waterOlPipeSourceLabel} 管線 ${waterOlPipeFeatureCount} 筆`;
+    setWaterGisStatus(msg, 4500);
+    toast(msg);
+  }else{
+    const msg=`${waterOlPipeSourceLabel} 沒有可顯示的線段`;
+    setWaterGisStatus(msg, 6500);
+    toast(msg);
+  }
+  return waterOlPipeFeatureCount;
+}
+function getPipeGmlUrlCandidates(){
+  const names=Array.from(new Set([PIPE_GML_URL,...PIPE_GML_URLS].filter(Boolean)));
+  const params=new URLSearchParams(location.search||'');
+  const custom=params.get('gml') || params.get('pipeGml') || params.get('pipe');
+  if(custom) names.unshift(custom);
+  const out=[];
+  for(const name of names){
+    if(!name) continue;
+    out.push(name);
+    try{ out.push(new URL(name, document.baseURI || location.href).href); }catch(e){}
+  }
+  return Array.from(new Set(out));
+}
+function withCacheBuster(url){
+  try{
+    const u=new URL(url, document.baseURI || location.href);
+    u.searchParams.set('_gmlts', String(Date.now()));
+    return u.href;
+  }catch(e){
+    const sep=String(url).includes('?')?'&':'?';
+    return `${url}${sep}_gmlts=${Date.now()}`;
+  }
+}
+async function fetchPipeGmlTextFromSameFolder(){
+  const candidates=getPipeGmlUrlCandidates();
+  if(String(location.protocol||'').toLowerCase()==='file:'){
+    throw new Error('直接用 file:// 開啟 HTML 時，瀏覽器通常會禁止自動讀取同資料夾 PIPE.gml；請用「匯入GML」按鈕，或改用 GitHub Pages/本機伺服器開啟。');
+  }
+  let lastErr=null;
+  for(const url of candidates){
+    try{
+      setWaterGisStatus(`嘗試讀取 GML：${url}`);
+      const resp=await fetch(withCacheBuster(url),{cache:'reload',credentials:'same-origin'});
+      if(!resp.ok){ lastErr=new Error(`${url} HTTP ${resp.status}`); continue; }
+      const text=await resp.text();
+      if(!String(text||'').trim()){ lastErr=new Error(`${url} 是空檔案`); continue; }
+      if(!/gml:coordinates|<coordinates/i.test(text.slice(0,1200000)) && !/gml:coordinates|<coordinates/i.test(text)){
+        lastErr=new Error(`${url} 不像 GML 管線檔`); continue;
+      }
+      return {text,source:url};
+    }catch(e){
+      lastErr=e;
+    }
+  }
+  throw new Error(`自動讀取同資料夾 PIPE.gml 失敗：${shortErr(lastErr||new Error('找不到檔案'))}。請確認 GitHub Pages 上實際檔名大小寫、HTML 與 PIPE.gml 是否在同一層，或在網址後加 ?gml=你的檔名.gml 指定檔案。`);
+}
+async function loadPipeGmlLayer(force=false){
+  if(waterOlPipeLoaded && !force) return waterOlPipeFeatureCount;
+  if(waterOlGmlLoadPromise && !force) return waterOlGmlLoadPromise;
   if(!waterOlPipeSource) return 0;
   waterOlGmlLoadPromise=(async()=>{
     try{
-      setWaterGisStatus('載入 PIPE.gml 管線圖層中…');
-      const resp=await fetch(PIPE_GML_URL,{cache:'force-cache'});
-      if(!resp.ok) throw new Error(`讀取 ${PIPE_GML_URL} 失敗：HTTP ${resp.status}`);
-      const text=await resp.text();
-      const xml=new DOMParser().parseFromString(text,'application/xml');
-      if(xml.getElementsByTagName('parsererror').length) throw new Error('PIPE.gml 解析失敗，請確認檔案格式');
-      const nodes=Array.from(xml.getElementsByTagNameNS('*','coordinates'));
-      const features=[];
-      for(const node of nodes){
-        const coords=parseGmlCoordinatesText(node.textContent||'');
-        if(coords.length<2) continue;
-        const root=findFeatureRootFromNode(node);
-        const f=new ol.Feature({
-          geometry:new ol.geom.LineString(coords),
-          layerType:'pipe',
-          gid:getFirstTextByLocalName(root,'gid'),
-          unific_id:getFirstTextByLocalName(root,'unific_id'),
-          pipe_size:getFirstTextByLocalName(root,'pipe_size'),
-          pipe_mtr:getFirstTextByLocalName(root,'pipe_mtr'),
-          pipe_kind:getFirstTextByLocalName(root,'pipe_kind'),
-          min_depth:getFirstTextByLocalName(root,'min_depth'),
-          max_depth:getFirstTextByLocalName(root,'max_depth'),
-          bury_date:getFirstTextByLocalName(root,'bury_date')
-        });
-        features.push(f);
-      }
-      waterOlPipeSource.clear(true);
-      waterOlPipeSource.addFeatures(features);
-      waterOlPipeLoaded=true;
-      waterOlPipeFeatureCount=features.length;
-      setWaterGisStatus('');
-      if(features.length){
-        toast(`已載入 GML 管線 ${features.length} 筆`);
-      }else{
-        toast('PIPE.gml 沒有可顯示的線段');
-      }
-      return features.length;
+      setWaterGisStatus('自動讀取同資料夾 PIPE.gml 中…');
+      const loaded=await fetchPipeGmlTextFromSameFolder();
+      setWaterGisStatus('解析 PIPE.gml 管線圖層中…');
+      const features=parsePipeGmlTextToFeatures(loaded.text);
+      applyPipeFeatures(features, loaded.source||'PIPE.gml');
+      return waterOlPipeFeatureCount;
     }catch(e){
-      setWaterGisStatus('');
-      toast(shortErr(e));
+      waterOlPipeLoaded=false;
+      waterOlPipeFeatureCount=0;
+      refreshMapBaseToggleButton();
+      const msg=shortErr(e);
+      setWaterGisStatus(msg, 12000);
+      toast(msg);
       return 0;
     }finally{
       waterOlGmlLoadPromise=null;
     }
   })();
   return waterOlGmlLoadPromise;
+}
+function triggerPipeGmlImport(){
+  const input=document.getElementById('pipe-gml-file-input');
+  if(!input){ toast('找不到 GML 匯入元件'); return; }
+  input.click();
+}
+async function handlePipeGmlFileImport(input){
+  const file=input&&input.files&&input.files[0];
+  if(!file) return;
+  try{
+    if(currentMapBaseMode!=='watergis'){
+      currentMapBaseMode='watergis';
+      refreshMapBaseToggleButton();
+      setActiveMapEngine('watergis');
+    }
+    if(!ensureOpenLayersReady()) throw new Error('OpenLayers / proj4 尚未載入完成');
+    initWaterGisMapShell();
+    setWaterGisStatus(`讀取 ${file.name||'GML'} 中…`);
+    const text=await file.text();
+    setWaterGisStatus('解析 GML 管線圖層中…');
+    const features=parsePipeGmlTextToFeatures(text);
+    applyPipeFeatures(features, file.name||'GML');
+    fitWaterGisToPipeLayer(false);
+    const summaryEl=document.getElementById('map-summary');
+    if(summaryEl){
+      summaryEl.textContent=summaryEl.textContent.replace(/、GML管線\s*[^；,，]*筆/g,'')+`、GML管線 ${waterOlPipeFeatureCount} 筆`;
+    }
+  }catch(e){
+    setWaterGisStatus('');
+    toast(shortErr(e));
+  }finally{
+    if(input) input.value='';
+  }
+}
+function fitWaterGisToPipeLayer(showMissingToast=true){
+  if(currentMapBaseMode!=='watergis'){
+    currentMapBaseMode='watergis';
+    refreshMapBaseToggleButton();
+    setActiveMapEngine('watergis');
+  }
+  if(!waterOlMap || !waterOlPipeSource || !waterOlPipeSource.getFeatures().length){
+    if(showMissingToast) toast('目前尚未載入 GML 管線');
+    return false;
+  }
+  const extent=waterOlPipeSource.getExtent();
+  if(!extent || ol.extent.isEmpty(extent)){
+    if(showMissingToast) toast('GML 管線範圍無效');
+    return false;
+  }
+  waterOlMap.getView().fit(extent,{padding:[35,35,35,35],maxZoom:18,duration:260});
+  lockWaterGisNorthUp();
+  if(showMissingToast) toast('已定位到 GML 管線範圍');
+  return true;
+}
+
+function enforceWaterGisNorthUp(){
+  if(!waterOlMap) return;
+  const view=waterOlMap.getView();
+  if(!view) return;
+  const rot=Number(view.getRotation&&view.getRotation())||0;
+  if(Math.abs(rot)>0.000001){
+    try{ view.setRotation(0); }catch(e){}
+  }
+}
+function removeWaterGisRotationInteractions(){
+  if(!waterOlMap || !window.ol) return;
+  const list=waterOlMap.getInteractions&&waterOlMap.getInteractions();
+  if(!list || !list.getArray) return;
+  list.getArray().slice().forEach(interaction=>{
+    let shouldRemove=false;
+    try{
+      shouldRemove=shouldRemove || (!!ol.interaction.PinchRotate && interaction instanceof ol.interaction.PinchRotate);
+      shouldRemove=shouldRemove || (!!ol.interaction.DragRotate && interaction instanceof ol.interaction.DragRotate);
+      shouldRemove=shouldRemove || (!!ol.interaction.DragRotateAndZoom && interaction instanceof ol.interaction.DragRotateAndZoom);
+      const name=String((interaction.constructor&&interaction.constructor.name)||'');
+      shouldRemove=shouldRemove || /rotate/i.test(name);
+    }catch(e){}
+    if(shouldRemove){
+      try{ list.remove(interaction); }catch(e){}
+    }
+  });
+}
+function patchWaterGisViewRotation(view){
+  if(!view || view.__northUpPatched) return;
+  view.__northUpPatched=true;
+  try{
+    const rawSetRotation=view.setRotation ? view.setRotation.bind(view) : null;
+    if(rawSetRotation){
+      view.setRotation=function(){ return rawSetRotation(0); };
+      rawSetRotation(0);
+    }
+    ['adjustRotation','adjustRotationInternal'].forEach(fn=>{
+      if(typeof view[fn]==='function'){
+        view[fn]=function(){
+          try{ if(rawSetRotation) return rawSetRotation(0); }catch(e){}
+        };
+      }
+    });
+  }catch(e){}
 }
 function initWaterGisMapShell(){
   if(waterOlMap) return;
@@ -2334,15 +2526,29 @@ function initWaterGisMapShell(){
     source:waterOlUserSource,
     style:getUserMarkerStyle
   });
-  const defaultControls=(ol.control.defaults && typeof ol.control.defaults.defaults==='function')
-    ? ol.control.defaults.defaults({attribution:true,zoom:true,rotate:false})
-    : (typeof ol.control.defaults==='function' ? ol.control.defaults({attribution:true,zoom:true,rotate:false}) : null);
+  const defaultInteractions=ol.interaction.defaults.defaults({
+    altShiftDragRotate:false,
+    pinchRotate:false,
+    doubleClickZoom:true,
+    mouseWheelZoom:true,
+    dragPan:true,
+    pinchZoom:true
+  });
   waterOlMap=new ol.Map({
     target:waterGisMapDiv,
     layers:[waterOlBaseLayer,waterOlWmsLayer,waterOlPipeLayer,waterOlMarkerLayer,waterOlUserLayer],
-    view:new ol.View({center:ol.proj.fromLonLat([120.9605,23.6978]),zoom:8,minZoom:7,maxZoom:22}),
-    controls:defaultControls ? defaultControls.extend([new ol.control.ScaleLine()]) : undefined
+    interactions:defaultInteractions,
+    view:new ol.View({
+      center:ol.proj.fromLonLat([120.9605,23.6978]),
+      zoom:8,
+      minZoom:7,
+      maxZoom:22,
+      rotation:0,
+      enableRotation:false
+    }),
+    controls:ol.control.defaults.defaults({attribution:true,zoom:true,rotate:false}).extend([new ol.control.ScaleLine()])
   });
+  lockWaterGisNorthUp();
   ensureWaterGisPopupOverlay();
   waterOlMap.on('singleclick',(evt)=>{
     let picked=null;
@@ -2356,6 +2562,28 @@ function initWaterGisMapShell(){
   if(!waterGisAuthWarned){
     waterGisAuthWarned=true;
     setTimeout(()=>toast('台水 WMS 圖層若未授權，仍會顯示國土測繪雲底圖與 PIPE.gml'),300);
+  }
+}
+function lockWaterGisNorthUp(){
+  if(!waterOlMap) return;
+  const view=waterOlMap.getView();
+  if(!view) return;
+  removeWaterGisRotationInteractions();
+  patchWaterGisViewRotation(view);
+  enforceWaterGisNorthUp();
+  if(view.__northUpLocked) return;
+  view.__northUpLocked=true;
+  view.on('change:rotation',()=>requestAnimationFrame(enforceWaterGisNorthUp));
+  ['change:center','change:resolution'].forEach(evt=>view.on(evt,()=>requestAnimationFrame(enforceWaterGisNorthUp)));
+  if(!waterOlMap.__northUpLockedEvents){
+    waterOlMap.__northUpLockedEvents=true;
+    ['movestart','moveend','pointerdrag','postrender'].forEach(evt=>waterOlMap.on(evt,()=>requestAnimationFrame(enforceWaterGisNorthUp)));
+    const vp=waterOlMap.getViewport&&waterOlMap.getViewport();
+    if(vp){
+      vp.addEventListener('touchstart',()=>requestAnimationFrame(enforceWaterGisNorthUp),{passive:true});
+      vp.addEventListener('touchmove',()=>requestAnimationFrame(enforceWaterGisNorthUp),{passive:true});
+      vp.addEventListener('touchend',()=>requestAnimationFrame(enforceWaterGisNorthUp),{passive:true});
+    }
   }
 }
 function refreshWaterGisMarkers(points){
@@ -2375,18 +2603,28 @@ function fitWaterGisView(points){
   if(!waterOlMap) return;
   const view=waterOlMap.getView();
   const extent=ol.extent.createEmpty();
-  if(points&&points.length){
-    points.forEach(r=>ol.extent.extend(extent,ol.extent.boundingExtent([ol.proj.fromLonLat([+r.lng,+r.lat])])));
-    view.fit(extent,{padding:[55,55,55,55],maxZoom:points.length===1?18:19,duration:220});
-    return;
-  }
+  let hasExtent=false;
   if(waterOlPipeSource && waterOlPipeSource.getFeatures().length){
     const pipeExtent=waterOlPipeSource.getExtent();
-    if(pipeExtent && !ol.extent.isEmpty(pipeExtent)) view.fit(pipeExtent,{padding:[35,35,35,35],maxZoom:18,duration:220});
-  }else{
-    view.setCenter(ol.proj.fromLonLat([120.9605,23.6978]));
-    view.setZoom(8);
+    if(pipeExtent && !ol.extent.isEmpty(pipeExtent)){
+      ol.extent.extend(extent, pipeExtent);
+      hasExtent=true;
+    }
   }
+  if(points&&points.length){
+    points.forEach(r=>{
+      ol.extent.extend(extent,ol.extent.boundingExtent([ol.proj.fromLonLat([+r.lng,+r.lat])]));
+      hasExtent=true;
+    });
+  }
+  if(hasExtent){
+    view.fit(extent,{padding:[55,55,55,55],maxZoom:(points&&points.length===1 && !waterOlPipeFeatureCount)?18:19,duration:220});
+    lockWaterGisNorthUp();
+    return;
+  }
+  view.setCenter(ol.proj.fromLonLat([120.9605,23.6978]));
+  view.setZoom(8);
+  lockWaterGisNorthUp();
 }
 async function initWaterGisMeasureMap(points, emptyEl){
   if(!ensureOpenLayersReady()){
@@ -2399,6 +2637,7 @@ async function initWaterGisMeasureMap(points, emptyEl){
   waterOlMap.updateSize();
   const gmlCount=await loadPipeGmlLayer();
   fitWaterGisView(points);
+  updateMapSummaryGmlCount();
   if(!points.length && !gmlCount && emptyEl) emptyEl.style.display='block';
   if(focusMapRecordId){
     setTimeout(()=>{
@@ -2503,6 +2742,7 @@ async function locateMeOnMap(){
       waterOlUserSource.clear(true);
       waterOlUserSource.addFeature(new ol.Feature({geometry:new ol.geom.Point(coord),layerType:'user'}));
       waterOlMap.getView().animate({center:coord,zoom:18,duration:220});
+      setTimeout(lockWaterGisNorthUp,260);
       showWaterGisPopup(coord,'<div class="map-info"><div class="map-info-title">目前位置</div><div class="map-info-row">已回到你的定位點。</div></div>');
       toast('已定位到你目前的位置');
       return;

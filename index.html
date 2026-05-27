@@ -2132,29 +2132,69 @@ function ensureOpenLayersReady(){
   return false;
 }
 
+function buildNlscRestTileUrl(z,y,x,layer='EMAP'){
+  return `https://wmts.nlsc.gov.tw/wmts/${layer}/default/GoogleMapsCompatible/${z}/${y}/${x}`;
+}
+function buildNlscKvpTileUrl(z,y,x,layer='EMAP'){
+  return 'https://wmts.nlsc.gov.tw/wmts'
+    +'?SERVICE=WMTS'
+    +'&REQUEST=GetTile'
+    +'&VERSION=1.0.0'
+    +'&LAYER='+encodeURIComponent(layer)
+    +'&STYLE=default'
+    +'&FORMAT=image/jpeg'
+    +'&TILEMATRIXSET=GoogleMapsCompatible'
+    +'&TILEMATRIX='+encodeURIComponent(z)
+    +'&TILEROW='+encodeURIComponent(y)
+    +'&TILECOL='+encodeURIComponent(x);
+}
 function createNlscBaseLayer(){
+  // 國土測繪雲官方範例採 REST WMTS：/wmts/EMAP/default/GoogleMapsCompatible/{z}/{y}/{x}
+  // 不設定 crossOrigin，避免手機瀏覽器在圖磚服務未回傳 CORS header 時直接擋掉影像。
+  const source=new ol.source.XYZ({
+    minZoom:0,
+    maxZoom:19,       // NLSC EMAP 最大圖磚層級為 19；超過時用第 19 層放大，避免 1:500 時底圖空白。
+    zDirection:-1,
+    wrapX:false,
+    transition:0,
+    tileUrlFunction:function(tileCoord){
+      if(!tileCoord) return '';
+      const z=tileCoord[0];
+      const x=tileCoord[1];
+      const y=-tileCoord[2]-1;
+      return buildNlscRestTileUrl(z,y,x,'EMAP');
+    },
+    tileLoadFunction:function(tile,src){
+      const img=tile.getImage();
+      const m=String(src||'').match(/GoogleMapsCompatible\/(\d+)\/(\d+)\/(\d+)/);
+      let fallbacks=[src];
+      if(m){
+        const z=m[1], y=m[2], x=m[3];
+        fallbacks=[
+          buildNlscRestTileUrl(z,y,x,'EMAP'),
+          buildNlscRestTileUrl(z,y,x,'EMAP6'),
+          buildNlscKvpTileUrl(z,y,x,'EMAP'),
+          buildNlscKvpTileUrl(z,y,x,'EMAP6')
+        ];
+      }
+      let idx=0;
+      img.onerror=function(){
+        idx++;
+        if(idx<fallbacks.length){
+          img.src=fallbacks[idx];
+        }else{
+          setWaterGisStatus('國土測繪雲底圖讀取失敗，請確認手機網路或重新整理',4500);
+        }
+      };
+      img.onload=function(){
+        if(currentMapBaseMode==='watergis') setWaterGisStatus('',0);
+      };
+      img.src=fallbacks[0];
+    }
+  });
   return new ol.layer.Tile({
     title:'國土測繪雲電子地圖',
-    source:new ol.source.XYZ({
-      maxZoom:22,
-      crossOrigin:'anonymous',
-      tileUrlFunction:function(tileCoord){
-        if(!tileCoord) return '';
-        const z=tileCoord[0], x=tileCoord[1], rawY=tileCoord[2];
-        const y=rawY<0 ? -rawY-1 : rawY;
-        return 'https://wmts.nlsc.gov.tw/wmts'
-          +'?layer=EMAP'
-          +'&style=_null'
-          +'&tilematrixset=EPSG:3857'
-          +'&Service=WMTS'
-          +'&Request=GetTile'
-          +'&Version=1.0.0'
-          +'&Format=image/png'
-          +'&TileMatrix='+z
-          +'&TileCol='+x
-          +'&TileRow='+y;
-      }
-    })
+    source:source
   });
 }
 

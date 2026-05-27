@@ -391,7 +391,7 @@ html,body{height:100%}
         <div class="map-head">
           <div class="map-sub" id="map-summary">讀取地圖資料中…</div>
           <div class="map-actions">
-            <button id="map-base-toggle-btn" class="btn btn-sm map-locate-btn map-base-toggle-btn" onclick="toggleMapBaseMode()">台水圖資</button>
+            <button id="map-base-toggle-btn" class="btn btn-sm map-locate-btn map-base-toggle-btn" onclick="toggleMapBaseMode()">管線圖資</button>
             <button id="map-locate-btn" class="btn btn-sm map-locate-btn" onclick="locateMeOnMap()">📍 定位我</button>
           </div>
         </div>
@@ -713,6 +713,8 @@ let waterOlPipeSourceLabel='';
 let waterOlPipeStyleCache=new Map();
 let waterOlMarkerFeatureMap=new Map();
 let waterOlStatusEl=null;
+let waterOlLastRecordZoomCoord=null;
+let waterOlLastRecordZoomAt=0;
 let measureMapMarkerMap=new Map();
 let focusMapRecordId=null;
 let pendingMapToastRecordId='';
@@ -2014,6 +2016,14 @@ function zoomWaterGisRecordToScale(coord){
   if(!waterOlMap || !coord) return;
   const view=waterOlMap.getView();
   if(!view) return;
+  waterOlLastRecordZoomCoord=coord;
+  waterOlLastRecordZoomAt=Date.now();
+
+  // 手機第一次切到 OpenLayers 地圖時，容器尺寸可能尚未完成重算。
+  // 若直接 animate，第一次點案件時解析度容易被後續 updateSize / fit 覆蓋；
+  // 這裡改成先強制 updateSize，再直接設定 resolution，確保第一次點擊也能落在目標比例尺。
+  try{ waterOlMap.updateSize(); }catch(e){}
+
   let resolution=getWaterGisResolutionForScale(coord);
   try{
     const minRes=typeof view.getMinResolution==='function' ? view.getMinResolution() : NaN;
@@ -2021,9 +2031,25 @@ function zoomWaterGisRecordToScale(coord){
     if(Number.isFinite(minRes)) resolution=Math.max(resolution,minRes);
     if(Number.isFinite(maxRes)) resolution=Math.min(resolution,maxRes);
   }catch(e){}
-  view.animate({center:coord,resolution:resolution,duration:220});
-  setTimeout(lockWaterGisNorthUp,260);
+
+  try{ if(typeof view.cancelAnimations==='function') view.cancelAnimations(); }catch(e){}
+  try{ view.setCenter(coord); }catch(e){}
+  try{ view.setResolution(resolution); }catch(e){}
+  lockWaterGisNorthUp();
+
+  // 再補一次，避免第一次切換地圖或 popup autoPan 造成比例尺被拉回。
+  setTimeout(()=>{
+    if(!waterOlMap) return;
+    const v=waterOlMap.getView();
+    if(!v) return;
+    try{ waterOlMap.updateSize(); }catch(e){}
+    try{ if(typeof v.cancelAnimations==='function') v.cancelAnimations(); }catch(e){}
+    try{ v.setResolution(resolution); }catch(e){}
+    try{ v.setCenter(coord); }catch(e){}
+    lockWaterGisNorthUp();
+  }, 120);
 }
+
 async function routeToRecordFromMap(encodedId){
   const id=decodeURIComponent(encodedId);
   const r=await getRecLocal(id); if(!r) return;
@@ -2064,9 +2090,9 @@ function refreshMapBaseToggleButton(){
   const btn=document.getElementById('map-base-toggle-btn');
   if(!btn) return;
   const isWater=currentMapBaseMode==='watergis';
-  btn.textContent=isWater?'Google地圖':'台水圖資';
+  btn.textContent=isWater?'Google地圖':'管線圖資';
   btn.classList.toggle('active',isWater);
-  btn.setAttribute('aria-label',isWater?'切換為 Google 地圖':'切換為台水圖資');
+  btn.setAttribute('aria-label',isWater?'切換為 Google 地圖':'切換為管線圖資');
 }
 function ensureMapContainers(canvas){
   if(!canvas) return;
@@ -2125,7 +2151,7 @@ function setupProj4ForTaiwan(){
   if(!window.proj4){
     if(!waterGisProjWarned){
       waterGisProjWarned=true;
-      setTimeout(()=>toast('proj4 載入失敗，台水圖資/GML 暫時無法換算座標'),80);
+      setTimeout(()=>toast('proj4 載入失敗，管線圖資/GML 暫時無法換算座標'),80);
     }
     return false;
   }
@@ -2137,7 +2163,7 @@ function setupProj4ForTaiwan(){
   }catch(e){
     if(!waterGisProjWarned){
       waterGisProjWarned=true;
-      setTimeout(()=>toast('台水圖資座標系統初始化失敗'),80);
+      setTimeout(()=>toast('管線圖資座標系統初始化失敗'),80);
     }
     return false;
   }
@@ -2771,16 +2797,23 @@ function fitWaterGisView(points){
   lockWaterGisNorthUp();
 }
 async function initWaterGisMeasureMap(points, emptyEl){
+  const initStartedAt=Date.now();
   if(!ensureOpenLayersReady()){
-    if(emptyEl){ emptyEl.style.display='block'; emptyEl.innerHTML='⚠️ OpenLayers / proj4 載入失敗，無法顯示台水圖資。'; }
+    if(emptyEl){ emptyEl.style.display='block'; emptyEl.innerHTML='⚠️ OpenLayers / proj4 載入失敗，無法顯示管線圖資。'; }
     return;
   }
   initWaterGisMapShell();
   setActiveMapEngine('watergis');
   refreshWaterGisMarkers(points);
-  waterOlMap.updateSize();
+  try{ waterOlMap.updateSize(); }catch(e){}
+  setTimeout(()=>{ try{ if(waterOlMap) waterOlMap.updateSize(); }catch(e){} },80);
   const gmlCount=await loadPipeGmlLayer();
-  fitWaterGisView(points);
+  const clickedDuringInit=waterOlLastRecordZoomCoord && waterOlLastRecordZoomAt>=initStartedAt;
+  if(clickedDuringInit){
+    zoomWaterGisRecordToScale(waterOlLastRecordZoomCoord);
+  }else{
+    fitWaterGisView(points);
+  }
   updateMapSummaryGmlCount();
   if(!points.length && !gmlCount && emptyEl) emptyEl.style.display='block';
   if(focusMapRecordId){
@@ -2866,7 +2899,7 @@ function toggleMapBaseMode(){
   currentMapBaseMode=currentMapBaseMode==='watergis'?'google':'watergis';
   refreshMapBaseToggleButton();
   if(document.getElementById('page-list')?.classList.contains('active')&&homeTab==='map'){
-    initMeasureMap().then(()=>toast(currentMapBaseMode==='watergis'?'已切換為台水圖資':'已切換為 Google 地圖'));
+    initMeasureMap().then(()=>toast(currentMapBaseMode==='watergis'?'已切換為管線圖資':'已切換為 Google 地圖'));
   }
 }
 async function locateMeOnMap(){
@@ -2876,7 +2909,7 @@ async function locateMeOnMap(){
   try{
     if(currentMapBaseMode==='watergis'){
       if(!waterOlMap) await initMeasureMap();
-      if(!waterOlMap) throw new Error('台水圖資尚未載入完成');
+      if(!waterOlMap) throw new Error('管線圖資尚未載入完成');
       const pos=await new Promise((resolve,reject)=>{
         navigator.geolocation.getCurrentPosition(resolve,reject,{enableHighAccuracy:true,timeout:10000,maximumAge:0});
       });

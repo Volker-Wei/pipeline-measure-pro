@@ -392,9 +392,6 @@ html,body{height:100%}
           <div class="map-sub" id="map-summary">讀取地圖資料中…</div>
           <div class="map-actions">
             <button id="map-base-toggle-btn" class="btn btn-sm map-locate-btn map-base-toggle-btn" onclick="toggleMapBaseMode()">台水圖資</button>
-            <button id="map-gml-fit-btn" class="btn btn-sm map-locate-btn" onclick="fitWaterGisToPipeLayer()" style="display:none">管線定位</button>
-            <button id="map-gml-import-btn" class="btn btn-sm map-locate-btn" onclick="triggerPipeGmlImport()" style="display:none">匯入GML</button>
-            <input id="pipe-gml-file-input" type="file" accept=".gml,.xml,text/xml,application/gml+xml" style="display:none" onchange="handlePipeGmlFileImport(this)">
             <button id="map-locate-btn" class="btn btn-sm map-locate-btn" onclick="locateMeOnMap()">📍 定位我</button>
           </div>
         </div>
@@ -652,6 +649,10 @@ const DEFAULT_SYNC_INTERVAL_MS=15000;
 const DRIVE_SCOPE='https://www.googleapis.com/auth/drive';
 const PIPE_GML_URL='PIPE.gml';
 const PIPE_GML_URLS=['PIPE.gml','./PIPE.gml','PIPE.GML','pipe.gml','Pipe.gml'];
+// 點擊案件圖標時，自動縮放到接近比例尺 1:500。
+// OGC / OpenLayers 常用 0.28mm 作為 CSS pixel 對應的比例尺換算基準。
+const RECORD_MARKER_TARGET_SCALE=500;
+const MAP_SCALE_PIXEL_SIZE_M=0.00028;
 const WATERGIS_WMS_URL='https://w3.water.gov.tw/gis/api/MapProxy';
 const WATERGIS_WMS_LAYER_CODE='GMLayer';
 
@@ -1922,15 +1923,12 @@ function focusMapRecordById(id){
     const f=waterOlMarkerFeatureMap.get(String(id));
     if(!f || !waterOlMap) return;
     const coord=f.getGeometry().getCoordinates();
-    waterOlMap.getView().animate({center:coord,zoom:18,duration:220});
-    setTimeout(lockWaterGisNorthUp,260);
+    zoomWaterGisRecordToScale(coord);
     showWaterGisPopup(coord, buildMapInfoHtml(f.get('record')||{}));
     return;
   }
   if(!measureMapMarkerMap.has(id)||!measureMap){ return; }
   const marker=measureMapMarkerMap.get(id);
-  measureMap.setCenter(marker.getPosition());
-  measureMap.setZoom(18);
   google.maps.event.trigger(marker,'click');
 }
 async function openRecordOnMap(ev,id){
@@ -1958,6 +1956,58 @@ function buildMapInfoHtml(r){
       <button class="map-info-btn fill" onclick="openMeasureForm('${eid}')">填寫測量資訊</button>
     </div>
   </div>`;
+}
+function getTargetGroundResolutionForScale(scale=RECORD_MARKER_TARGET_SCALE){
+  return Math.max(0.01, Number(scale)||RECORD_MARKER_TARGET_SCALE) * MAP_SCALE_PIXEL_SIZE_M;
+}
+function getGoogleZoomForScale(lat, scale=RECORD_MARKER_TARGET_SCALE){
+  const latitude=Number(lat);
+  const cosLat=Number.isFinite(latitude) ? Math.max(0.01, Math.cos(latitude*Math.PI/180)) : 1;
+  const groundResolution=getTargetGroundResolutionForScale(scale);
+  const zoom=Math.log2((156543.03392804097*cosLat)/groundResolution);
+  // Google Maps 手機版通常用整數 zoom 較穩；台灣緯度下 1:500 約為 zoom 20。
+  return Math.max(0, Math.min(21, Math.round(zoom)));
+}
+function zoomGoogleRecordToScale(marker){
+  if(!measureMap || !marker) return;
+  const pos=marker.getPosition && marker.getPosition();
+  if(!pos) return;
+  const lat=typeof pos.lat==='function' ? pos.lat() : pos.lat;
+  measureMap.setCenter(pos);
+  measureMap.setZoom(getGoogleZoomForScale(lat));
+}
+function openGoogleRecordInfoAtScale(marker, html){
+  zoomGoogleRecordToScale(marker);
+  if(measureMapInfo){
+    measureMapInfo.setContent(html);
+    measureMapInfo.open({map:measureMap,anchor:marker});
+  }
+}
+function getWaterGisResolutionForScale(coord, scale=RECORD_MARKER_TARGET_SCALE){
+  const groundResolution=getTargetGroundResolutionForScale(scale);
+  let cosLat=1;
+  try{
+    if(window.ol && coord){
+      const lonLat=ol.proj.toLonLat(coord);
+      const lat=Array.isArray(lonLat)?Number(lonLat[1]):NaN;
+      if(Number.isFinite(lat)) cosLat=Math.max(0.01, Math.cos(lat*Math.PI/180));
+    }
+  }catch(e){}
+  return groundResolution/cosLat;
+}
+function zoomWaterGisRecordToScale(coord){
+  if(!waterOlMap || !coord) return;
+  const view=waterOlMap.getView();
+  if(!view) return;
+  let resolution=getWaterGisResolutionForScale(coord);
+  try{
+    const minRes=typeof view.getMinResolution==='function' ? view.getMinResolution() : NaN;
+    const maxRes=typeof view.getMaxResolution==='function' ? view.getMaxResolution() : NaN;
+    if(Number.isFinite(minRes)) resolution=Math.max(resolution,minRes);
+    if(Number.isFinite(maxRes)) resolution=Math.min(resolution,maxRes);
+  }catch(e){}
+  view.animate({center:coord,resolution:resolution,duration:220});
+  setTimeout(lockWaterGisNorthUp,260);
 }
 async function routeToRecordFromMap(encodedId){
   const id=decodeURIComponent(encodedId);
@@ -1997,15 +2047,11 @@ async function openMeasureForm(encodedId){
 
 function refreshMapBaseToggleButton(){
   const btn=document.getElementById('map-base-toggle-btn');
-  const gmlBtn=document.getElementById('map-gml-import-btn');
-  const fitBtn=document.getElementById('map-gml-fit-btn');
   if(!btn) return;
   const isWater=currentMapBaseMode==='watergis';
   btn.textContent=isWater?'Google地圖':'台水圖資';
   btn.classList.toggle('active',isWater);
   btn.setAttribute('aria-label',isWater?'切換為 Google 地圖':'切換為台水圖資');
-  if(gmlBtn) gmlBtn.style.display=isWater?'flex':'none';
-  if(fitBtn) fitBtn.style.display=(isWater && waterOlPipeFeatureCount>0)?'flex':'none';
 }
 function ensureMapContainers(canvas){
   if(!canvas) return;
@@ -2358,7 +2404,7 @@ function withCacheBuster(url){
 async function fetchPipeGmlTextFromSameFolder(){
   const candidates=getPipeGmlUrlCandidates();
   if(String(location.protocol||'').toLowerCase()==='file:'){
-    throw new Error('直接用 file:// 開啟 HTML 時，瀏覽器通常會禁止自動讀取同資料夾 PIPE.gml；請用「匯入GML」按鈕，或改用 GitHub Pages/本機伺服器開啟。');
+    throw new Error('直接用 file:// 開啟 HTML 時，瀏覽器通常會禁止自動讀取同資料夾 PIPE.gml；請用 GitHub Pages 或本機伺服器開啟。');
   }
   let lastErr=null;
   for(const url of candidates){
@@ -2556,7 +2602,10 @@ function initWaterGisMapShell(){
     if(!picked){hideWaterGisPopup();return;}
     const geom=picked.getGeometry();
     const coord=geom instanceof ol.geom.Point ? geom.getCoordinates() : evt.coordinate;
-    if(picked.get('layerType')==='record') showWaterGisPopup(coord, buildMapInfoHtml(picked.get('record')||{}));
+    if(picked.get('layerType')==='record'){
+      zoomWaterGisRecordToScale(coord);
+      showWaterGisPopup(coord, buildMapInfoHtml(picked.get('record')||{}));
+    }
     else if(picked.get('layerType')==='pipe') showWaterGisPopup(coord, buildPipeInfoHtml(picked));
   });
   if(!waterGisAuthWarned){
@@ -2698,7 +2747,7 @@ async function initGoogleMeasureMap(points, emptyEl){
       icon:{path:google.maps.SymbolPath.CIRCLE,scale:8,fillColor:markerColor,fillOpacity:1,strokeColor:'#ffffff',strokeWeight:2}
     });
     const html=buildMapInfoHtml(r);
-    marker.addListener('click',()=>{ measureMapInfo.setContent(html); measureMapInfo.open({map:measureMap,anchor:marker}); });
+    marker.addListener('click',()=>openGoogleRecordInfoAtScale(marker, html));
     measureMapMarkers.push(marker);
     measureMapMarkerMap.set(String(r.id),marker);
   });

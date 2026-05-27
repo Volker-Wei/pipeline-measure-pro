@@ -649,10 +649,12 @@ const DEFAULT_SYNC_INTERVAL_MS=15000;
 const DRIVE_SCOPE='https://www.googleapis.com/auth/drive';
 const PIPE_GML_URL='PIPE.gml';
 const PIPE_GML_URLS=['PIPE.gml','./PIPE.gml','PIPE.GML','pipe.gml','Pipe.gml'];
-// 點擊案件圖標時，自動縮放到接近比例尺 1:500。
+// 點擊案件圖標時，自動縮放到接近比例尺 1:1000。
 // OGC / OpenLayers 常用 0.28mm 作為 CSS pixel 對應的比例尺換算基準。
 const RECORD_MARKER_TARGET_SCALE=1000;
 const MAP_SCALE_PIXEL_SIZE_M=0.00028;
+const WATERGIS_WMS_URL='https://w3.water.gov.tw/gis/api/MapProxy';
+const WATERGIS_WMS_LAYER_CODE='GMLayer';
 
 
 let db;
@@ -679,6 +681,7 @@ let googleMapsPromise=null;
 let googleMapDiv=null;
 let waterGisMapDiv=null;
 let currentMapBaseMode='google';
+let waterGisAuthWarned=false;
 let waterGisProjWarned=false;
 let waterGisOlWarned=false;
 let waterOlMap=null;
@@ -689,6 +692,7 @@ let waterOlPipeSource=null;
 let waterOlUserLayer=null;
 let waterOlUserSource=null;
 let waterOlPopupOverlay=null;
+let waterOlWmsLayer=null;
 let waterOlBaseLayer=null;
 let waterOlGmlLoadPromise=null;
 let waterOlPipeLoaded=false;
@@ -2106,7 +2110,7 @@ function setupProj4ForTaiwan(){
   if(!window.proj4){
     if(!waterGisProjWarned){
       waterGisProjWarned=true;
-      setTimeout(()=>toast('proj4 載入失敗，國土測繪雲/GML 暫時無法換算座標'),80);
+      setTimeout(()=>toast('proj4 載入失敗，台水圖資/GML 暫時無法換算座標'),80);
     }
     return false;
   }
@@ -2118,7 +2122,7 @@ function setupProj4ForTaiwan(){
   }catch(e){
     if(!waterGisProjWarned){
       waterGisProjWarned=true;
-      setTimeout(()=>toast('國土測繪雲座標系統初始化失敗'),80);
+      setTimeout(()=>toast('台水圖資座標系統初始化失敗'),80);
     }
     return false;
   }
@@ -2131,73 +2135,89 @@ function ensureOpenLayersReady(){
   }
   return false;
 }
-
-function buildNlscRestTileUrl(z,y,x,layer='EMAP'){
-  return `https://wmts.nlsc.gov.tw/wmts/${layer}/default/GoogleMapsCompatible/${z}/${y}/${x}`;
+function googleTileToLonLatBounds(coord, zoom){
+  const n=Math.pow(2,zoom);
+  const west=coord.x/n*360-180;
+  const east=(coord.x+1)/n*360-180;
+  const northRad=Math.atan(Math.sinh(Math.PI*(1-2*coord.y/n)));
+  const southRad=Math.atan(Math.sinh(Math.PI*(1-2*(coord.y+1)/n)));
+  return {west,south:southRad*180/Math.PI,east,north:northRad*180/Math.PI};
 }
-function buildNlscKvpTileUrl(z,y,x,layer='EMAP'){
-  return 'https://wmts.nlsc.gov.tw/wmts'
-    +'?SERVICE=WMTS'
-    +'&REQUEST=GetTile'
-    +'&VERSION=1.0.0'
-    +'&LAYER='+encodeURIComponent(layer)
-    +'&STYLE=default'
-    +'&FORMAT=image/jpeg'
-    +'&TILEMATRIXSET=GoogleMapsCompatible'
-    +'&TILEMATRIX='+encodeURIComponent(z)
-    +'&TILEROW='+encodeURIComponent(y)
-    +'&TILECOL='+encodeURIComponent(x);
+function googleTileToEPSG3826BBox(coord, zoom){
+  if(!setupProj4ForTaiwan()) return '';
+  const b=googleTileToLonLatBounds(coord,zoom);
+  // 台灣附近才向台水 GIS 要圖，避免拖曳到海外時持續送無效請求。
+  if(b.east<118 || b.west>123 || b.north<20 || b.south>27) return '';
+  const p1=proj4('EPSG:4326','EPSG:3826',[b.west,b.south]);
+  const p2=proj4('EPSG:4326','EPSG:3826',[b.east,b.north]);
+  const minX=Math.min(p1[0],p2[0]);
+  const minY=Math.min(p1[1],p2[1]);
+  const maxX=Math.max(p1[0],p2[0]);
+  const maxY=Math.max(p1[1],p2[1]);
+  return `${minX},${minY},${maxX},${maxY}`;
+}
+function buildWaterGisWmsUrl(coord, zoom){
+  const bbox=googleTileToEPSG3826BBox(coord,zoom);
+  if(!bbox) return '';
+  const params=new URLSearchParams({
+    SERVICE:'WMS',
+    VERSION:'1.3.0',
+    REQUEST:'GetMap',
+    FORMAT:'image/png',
+    TRANSPARENT:'true',
+    layercode:WATERGIS_WMS_LAYER_CODE,
+    mapCode:'default',
+    requestType:'default',
+    serverCode:'ms',
+    WIDTH:'256',
+    HEIGHT:'256',
+    CRS:'EPSG:3826',
+    STYLES:'',
+    BBOX:bbox
+  });
+  return `${WATERGIS_WMS_URL}?${params.toString()}`;
 }
 function createNlscBaseLayer(){
-  // 國土測繪雲官方範例採 REST WMTS：/wmts/EMAP/default/GoogleMapsCompatible/{z}/{y}/{x}
-  // 不設定 crossOrigin，避免手機瀏覽器在圖磚服務未回傳 CORS header 時直接擋掉影像。
-  const source=new ol.source.XYZ({
-    minZoom:0,
-    maxZoom:19,       // NLSC EMAP 最大圖磚層級為 19；超過時用第 19 層放大，避免 1:500 時底圖空白。
-    zDirection:-1,
-    wrapX:false,
-    transition:0,
-    tileUrlFunction:function(tileCoord){
-      if(!tileCoord) return '';
-      const z=tileCoord[0];
-      const x=tileCoord[1];
-      const y=-tileCoord[2]-1;
-      return buildNlscRestTileUrl(z,y,x,'EMAP');
-    },
-    tileLoadFunction:function(tile,src){
-      const img=tile.getImage();
-      const m=String(src||'').match(/GoogleMapsCompatible\/(\d+)\/(\d+)\/(\d+)/);
-      let fallbacks=[src];
-      if(m){
-        const z=m[1], y=m[2], x=m[3];
-        fallbacks=[
-          buildNlscRestTileUrl(z,y,x,'EMAP'),
-          buildNlscRestTileUrl(z,y,x,'EMAP6'),
-          buildNlscKvpTileUrl(z,y,x,'EMAP'),
-          buildNlscKvpTileUrl(z,y,x,'EMAP6')
-        ];
-      }
-      let idx=0;
-      img.onerror=function(){
-        idx++;
-        if(idx<fallbacks.length){
-          img.src=fallbacks[idx];
-        }else{
-          setWaterGisStatus('國土測繪雲底圖讀取失敗，請確認手機網路或重新整理',4500);
-        }
-      };
-      img.onload=function(){
-        if(currentMapBaseMode==='watergis') setWaterGisStatus('',0);
-      };
-      img.src=fallbacks[0];
-    }
-  });
   return new ol.layer.Tile({
     title:'國土測繪雲電子地圖',
-    source:source
+    source:new ol.source.XYZ({
+      maxZoom:22,
+      crossOrigin:'anonymous',
+      tileUrlFunction:function(tileCoord){
+        if(!tileCoord) return '';
+        const z=tileCoord[0],x=tileCoord[1],rawY=tileCoord[2];
+        const y=rawY<0 ? -rawY-1 : rawY;
+        return 'https://wmts.nlsc.gov.tw/wmts'
+          +'?layer=EMAP'
+          +'&style=_null'
+          +'&tilematrixset=EPSG:3857'
+          +'&Service=WMTS'
+          +'&Request=GetTile'
+          +'&Version=1.0.0'
+          +'&Format=image/png'
+          +'&TileMatrix='+z
+          +'&TileCol='+x
+          +'&TileRow='+y;
+      }
+    })
   });
 }
-
+function createWaterWmsLayer(){
+  return new ol.layer.Tile({
+    title:'台水 WMS 圖層',
+    opacity:.92,
+    source:new ol.source.XYZ({
+      maxZoom:22,
+      crossOrigin:'anonymous',
+      tileUrlFunction:function(tileCoord){
+        if(!tileCoord) return '';
+        const z=tileCoord[0],x=tileCoord[1],rawY=tileCoord[2];
+        const y=rawY<0 ? -rawY-1 : rawY;
+        return buildWaterGisWmsUrl({x,y},z);
+      }
+    })
+  });
+}
 function twd97ToLonLat(x,y){
   if(!setupProj4ForTaiwan()) return null;
   const out=proj4('EPSG:3826','EPSG:4326',[+x,+y]);
@@ -2271,7 +2291,7 @@ function getUserMarkerStyle(){
 }
 function buildPipeInfoHtml(feature){
   return `<div class="map-info">
-    <div class="map-info-title">GML管線</div>
+    <div class="map-info-title">台水管線</div>
     <div class="map-info-row"><b>管徑：</b>${esc(feature.get('pipe_size')||'—')}</div>
     <div class="map-info-row"><b>材質：</b>${esc(feature.get('pipe_mtr')||'—')}</div>
     <div class="map-info-row"><b>管線編號：</b>${esc(feature.get('unific_id')||feature.get('gid')||'—')}</div>
@@ -2532,6 +2552,7 @@ function patchWaterGisViewRotation(view){
 function initWaterGisMapShell(){
   if(waterOlMap) return;
   waterOlBaseLayer=createNlscBaseLayer();
+  waterOlWmsLayer=createWaterWmsLayer();
   waterOlPipeSource=new ol.source.Vector();
   waterOlPipeLayer=new ol.layer.Vector({
     title:'PIPE.gml 管線',
@@ -2561,7 +2582,7 @@ function initWaterGisMapShell(){
   });
   waterOlMap=new ol.Map({
     target:waterGisMapDiv,
-    layers:[waterOlBaseLayer,waterOlPipeLayer,waterOlMarkerLayer,waterOlUserLayer],
+    layers:[waterOlBaseLayer,waterOlWmsLayer,waterOlPipeLayer,waterOlMarkerLayer,waterOlUserLayer],
     interactions:defaultInteractions,
     view:new ol.View({
       center:ol.proj.fromLonLat([120.9605,23.6978]),
@@ -2652,7 +2673,7 @@ function fitWaterGisView(points){
 }
 async function initWaterGisMeasureMap(points, emptyEl){
   if(!ensureOpenLayersReady()){
-    if(emptyEl){ emptyEl.style.display='block'; emptyEl.innerHTML='⚠️ OpenLayers / proj4 載入失敗，無法顯示國土測繪雲底圖。'; }
+    if(emptyEl){ emptyEl.style.display='block'; emptyEl.innerHTML='⚠️ OpenLayers / proj4 載入失敗，無法顯示台水圖資。'; }
     return;
   }
   initWaterGisMapShell();

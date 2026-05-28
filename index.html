@@ -677,7 +677,7 @@ https://drive.google.com/file/d/你的檔案ID/view
 const DB='TrenchDB4',VER=2,ST='records';
 const PIPE_CACHE_ST='pipe_cache';
 const PIPE_CACHE_ID='PIPE_GML_EPSG3826_TO_EPSG3857_V1';
-const PIPE_CACHE_SCHEMA_VERSION=25;
+const PIPE_CACHE_SCHEMA_VERSION=26;
 const MAPS_API_KEY='AIzaSyAA25Teu7QMzQF7LhbF1MqRsux4td_vBMo';
 const APP_CONFIG_KEY='TrenchSyncConfigV1';
 const PIPE_AUTOLOAD_DISABLED_KEY='PipeGmlAutoLoadDisabledV1';
@@ -2451,6 +2451,7 @@ function twd97ToWebMercator(x,y){
   return lonlat ? ol.proj.fromLonLat(lonlat) : null;
 }
 function parseGmlCoordinatesText(text){
+  // 舊版 OGR GML：gml:coordinates，格式常見為 x,y 或 x,y,z。
   const tokens=String(text||'').trim().split(/\s+/).filter(Boolean);
   const coords=[];
   for(const token of tokens){
@@ -2459,16 +2460,79 @@ function parseGmlCoordinatesText(text){
     const x=parseFloat(parts[0]);
     const y=parseFloat(parts[1]);
     if(!Number.isFinite(x)||!Number.isFinite(y)) continue;
-    // 這份 PIPE.gml 標成 EPSG:4326，但實際是 TWD97/TM2(EPSG:3826) 公尺座標，所以固定從 3826 轉 3857。
     const wm=twd97ToWebMercator(x,y);
     if(wm) coords.push(wm);
   }
   return coords;
 }
+function getNodeLocalNameLower(node){
+  return String(node&&node.localName||node&&node.nodeName||'').toLowerCase();
+}
+function getGmlSrsDimension(node){
+  let p=node;
+  while(p&&p.nodeType===1){
+    const val=p.getAttribute&&p.getAttribute('srsDimension');
+    const n=parseInt(val,10);
+    if(Number.isFinite(n)&&n>=2) return n;
+    p=p.parentNode;
+  }
+  return null;
+}
+function parseGmlNumberList(text){
+  return String(text||'').trim().split(/[\s,]+/).map(Number).filter(Number.isFinite);
+}
+function parseGmlPosOrPosListText(text, dim=null){
+  const nums=parseGmlNumberList(text);
+  if(nums.length<2) return [];
+  let d=Number(dim)||0;
+  if(d<2){
+    // QGIS/FME 匯出常為 3D：x y z x y z；沒有 srsDimension 時優先判斷 3D。
+    d=(nums.length%3===0)?3:2;
+  }
+  const coords=[];
+  for(let i=0;i+d-1<nums.length;i+=d){
+    const x=nums[i], y=nums[i+1];
+    const wm=twd97ToWebMercator(x,y);
+    if(wm) coords.push(wm);
+  }
+  return coords;
+}
+function parseGmlCoordinateNodeToCoords(node){
+  const ln=getNodeLocalNameLower(node);
+  if(ln==='coordinates') return parseGmlCoordinatesText(node.textContent||'');
+  if(ln==='pos') return parseGmlPosOrPosListText(node.textContent||'', getGmlSrsDimension(node)||3).slice(0,1);
+  if(ln==='poslist') return parseGmlPosOrPosListText(node.textContent||'', getGmlSrsDimension(node));
+  return [];
+}
+function getGmlCoordinateNodes(xml){
+  const nodes=[
+    ...Array.from(xml.getElementsByTagNameNS('*','coordinates')),
+    ...Array.from(xml.getElementsByTagNameNS('*','pos')),
+    ...Array.from(xml.getElementsByTagNameNS('*','posList'))
+  ];
+  // 避免極少數瀏覽器對大小寫或 namespace 搜尋不穩，補一層 localName 掃描。
+  if(!nodes.length){
+    const all=Array.from(xml.getElementsByTagName('*'));
+    return all.filter(n=>['coordinates','pos','poslist'].includes(getNodeLocalNameLower(n)));
+  }
+  return nodes;
+}
 function getFirstTextByLocalName(root, localName){
   if(!root) return '';
-  const nodes=root.getElementsByTagNameNS('*',localName);
-  return nodes&&nodes.length ? String(nodes[0].textContent||'').trim() : '';
+  const target=String(localName||'').toLowerCase();
+  // 先用原本大小寫精準搜尋，保留舊版 GML 效率。
+  let nodes=root.getElementsByTagNameNS ? root.getElementsByTagNameNS('*',localName) : [];
+  if(nodes&&nodes.length) return String(nodes[0].textContent||'').trim();
+
+  // QGIS / FME 匯出的 GML 常用大寫欄位，例如 PIPE_SIZE、ANGLE。
+  // 這裡改用 localName 大小寫不敏感搜尋。
+  nodes=root.getElementsByTagName ? root.getElementsByTagName('*') : [];
+  for(let i=0;i<nodes.length;i++){
+    if(String(nodes[i].localName||nodes[i].nodeName||'').toLowerCase()===target){
+      return String(nodes[i].textContent||'').trim();
+    }
+  }
+  return '';
 }
 function getValveTypeLabel(value){
   const raw=String(value||'').trim();
@@ -2481,13 +2545,22 @@ function isReverseWaterValveType(value){
   return getValveTypeLabel(value)==='逆止閥';
 }
 function parseFirstGmlCoordinateRaw(text){
-  const token=String(text||'').trim().split(/\s+/).filter(Boolean)[0] || '';
-  const parts=token.split(',');
-  if(parts.length<2) return null;
-  const x=parseFloat(parts[0]);
-  const y=parseFloat(parts[1]);
-  if(!Number.isFinite(x)||!Number.isFinite(y)) return null;
-  return {x,y};
+  const raw=String(text||'').trim();
+  if(!raw) return null;
+  // 舊版 gml:coordinates：x,y,z
+  const firstToken=raw.split(/\s+/).filter(Boolean)[0]||'';
+  if(firstToken.includes(',')){
+    const parts=firstToken.split(',');
+    const x=parseFloat(parts[0]);
+    const y=parseFloat(parts[1]);
+    if(Number.isFinite(x)&&Number.isFinite(y)) return {x,y};
+  }
+  // QGIS/FME gml:pos / gml:posList：x y z
+  const nums=parseGmlNumberList(raw);
+  if(nums.length>=2 && Number.isFinite(nums[0]) && Number.isFinite(nums[1])){
+    return {x:nums[0],y:nums[1]};
+  }
+  return null;
 }
 function createValveSegmentGeometryFromGmlPointText(coordText, angleText, valveTypeText=''){
   const p=parseFirstGmlCoordinateRaw(coordText);
@@ -3123,14 +3196,14 @@ function hideWaterGisPopup(){
 function parsePipeGmlTextToFeatures(text, options={}){
   const xml=new DOMParser().parseFromString(String(text||''),'application/xml');
   if(xml.getElementsByTagName('parsererror').length) throw new Error('GML 解析失敗，請確認檔案格式');
-  const nodes=Array.from(xml.getElementsByTagNameNS('*','coordinates'));
-  if(!nodes.length) throw new Error('GML 內找不到 gml:coordinates 座標資料');
+  const nodes=getGmlCoordinateNodes(xml);
+  if(!nodes.length) throw new Error('GML 內找不到 gml:coordinates / gml:pos / gml:posList 座標資料');
   const features=[];
   const infoEnabled=options.infoEnabled!==false;
   const layerRole=infoEnabled?'main':'overlay';
   let done=0;
   for(const node of nodes){
-    const coords=parseGmlCoordinatesText(node.textContent||'');
+    const coords=parseGmlCoordinateNodeToCoords(node);
     if(!coords.length) continue;
     const root=findFeatureRootFromNode(node);
     const pipeSize=getFirstTextByLocalName(root,'pipe_size') || getFirstTextByLocalName(root,'hydrant_size') || getFirstTextByLocalName(root,'valve_size');

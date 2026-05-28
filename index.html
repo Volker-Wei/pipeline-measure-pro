@@ -677,7 +677,7 @@ https://drive.google.com/file/d/你的檔案ID/view
 const DB='TrenchDB4',VER=2,ST='records';
 const PIPE_CACHE_ST='pipe_cache';
 const PIPE_CACHE_ID='PIPE_GML_EPSG3826_TO_EPSG3857_V1';
-const PIPE_CACHE_SCHEMA_VERSION=26;
+const PIPE_CACHE_SCHEMA_VERSION=27;
 const MAPS_API_KEY='AIzaSyAA25Teu7QMzQF7LhbF1MqRsux4td_vBMo';
 const APP_CONFIG_KEY='TrenchSyncConfigV1';
 const PIPE_AUTOLOAD_DISABLED_KEY='PipeGmlAutoLoadDisabledV1';
@@ -3554,23 +3554,38 @@ async function fetchPipeGmlTextsFromDriveFolder(cacheBust=false){
   if(!folderId) return null;
   const files=await listGoogleDriveGmlFilesInFolder(folderId);
   if(!files.length) throw new Error('Drive GML 資料夾內找不到 .gml 檔案');
+
   const loaded=[];
+  const errors=[];
   let mainCount=0, overlayCount=0;
+
   for(let i=0;i<files.length;i++){
     const f=files[i];
-    const role=classifyDriveGmlFileRole(f.name||'');
+    const label=f.name||f.id;
+    const role=classifyDriveGmlFileRole(label);
     const infoEnabled=role==='main';
     if(infoEnabled) mainCount++; else overlayCount++;
-    setPipeConfigResult(`正在下載 Drive 資料夾 GML ${i+1}/${files.length}：${f.name||f.id}（${infoEnabled?'主要管線':'附加圖資'}）`);
-    const text=await fetchPipeGmlTextFromGoogleDrive(f.id, f.name||f.id, cacheBust);
-    loaded.push({
-      source:`drive-folder:${folderId}/${f.id}`,
-      sourceLabel:`Drive資料夾/${f.name||f.id}`,
-      text,
-      infoEnabled
-    });
+
+    try{
+      setPipeConfigResult(`正在下載 Drive 資料夾 GML ${i+1}/${files.length}：${label}（${infoEnabled?'主要管線':'附加圖資'}）`);
+      const text=await fetchPipeGmlTextFromGoogleDrive(f.id, label, cacheBust);
+      loaded.push({
+        source:`drive-folder:${folderId}/${f.id}`,
+        sourceLabel:`Drive資料夾/${label}`,
+        text,
+        infoEnabled
+      });
+    }catch(e){
+      errors.push(`${label}：${shortErr(e)}`);
+    }
   }
-  setPipeConfigResult(`Drive 資料夾 GML 讀取完成：主要管線 ${mainCount} 個、附加圖資 ${overlayCount} 個`);
+
+  if(!loaded.length){
+    throw new Error(`Drive GML 資料夾內所有檔案都讀取失敗：${errors.join('；')}`);
+  }
+
+  const msg=`Drive 資料夾 GML 讀取完成：成功 ${loaded.length}/${files.length}，主要管線 ${mainCount} 個、附加圖資 ${overlayCount} 個${errors.length?'；略過：'+errors.join('；'):''}`;
+  setPipeConfigResult(msg);
   return loaded;
 }
 async function fetchPipeGmlTextsFromConfiguredSources(cacheBust=false){
@@ -3665,22 +3680,49 @@ function mergePipeFeaturesFromLoadedGml(loadedList){
   const all=[];
   const labels=[];
   const urls=[];
+  const parseErrors=[];
+  const parseCounts=[];
+
   (loadedList||[]).forEach((item,idx)=>{
     const label=item.sourceLabel||item.source||`GML #${idx+1}`;
-    setWaterGisStatus(`解析 ${label} 管線圖層中…`);
-    setPipeConfigResult(`解析 ${label} 管線圖層中…`);
-    const features=parsePipeGmlTextToFeatures(item.text,{infoEnabled:item.infoEnabled!==false, sourceLabel:label});
-    features.forEach(f=>{f.set('source_gml',label); if(item.infoEnabled===false){ f.set('pipe_info_enabled','0'); f.set('pipe_layer_role','overlay'); }});
-    all.push(...features);
-    labels.push(label);
-    urls.push(item.sourceUrl||item.source||'');
+    try{
+      setWaterGisStatus(`解析 ${label} 管線圖層中…`);
+      setPipeConfigResult(`解析 ${label} 管線圖層中…`);
+      const features=parsePipeGmlTextToFeatures(item.text,{infoEnabled:item.infoEnabled!==false, sourceLabel:label});
+
+      if(!features.length){
+        parseErrors.push(`${label}：沒有可顯示的座標資料`);
+        return;
+      }
+
+      features.forEach(f=>{
+        f.set('source_gml',label);
+        if(item.infoEnabled===false){
+          f.set('pipe_info_enabled','0');
+          f.set('pipe_layer_role','overlay');
+        }
+      });
+
+      all.push(...features);
+      labels.push(label);
+      urls.push(item.sourceUrl||item.source||'');
+      parseCounts.push(`${label} ${features.length}筆`);
+    }catch(e){
+      parseErrors.push(`${label}：${shortErr(e)}`);
+    }
   });
-  const auxAdjust=adjustAuxSymbolsToNearestPipe(all);
-  if(auxAdjust.total){
-    const msg=`PIPECOVER/PIPEHAT 方向校正：${auxAdjust.adjusted}/${auxAdjust.total} 個符號改用最近 PIPE 端點`;
-    setWaterGisStatus(msg,4500);
-    setPipeConfigResult(msg);
+
+  if(!all.length){
+    throw new Error(`所有 GML 都解析失敗：${parseErrors.join('；')}`);
   }
+
+  const auxAdjust=adjustAuxSymbolsToNearestPipe(all);
+  let msg=`GML 解析完成：${parseCounts.join('、')}`;
+  if(parseErrors.length) msg+=`；略過 ${parseErrors.length} 個：${parseErrors.join('；')}`;
+  if(auxAdjust.total) msg+=`；PIPECOVER/PIPEHAT 方向校正 ${auxAdjust.adjusted}/${auxAdjust.total}`;
+  setWaterGisStatus(msg,6500);
+  setPipeConfigResult(msg);
+
   return {features:all,sourceLabel:labels.length>1?`${labels.length} 個 GML來源`:labels[0]||'PIPE.gml',sourceUrl:urls.filter(Boolean).join('\n')};
 }
 async function rebuildPipeCacheFromSources(cacheBust=true){

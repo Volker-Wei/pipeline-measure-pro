@@ -611,8 +611,7 @@ html,body{height:100%}
         <div class="info-box" style="margin-top:10px">
           同一個 Drive 資料夾內的 GML 會自動分類：<br>
           <b>PIPE*.gml</b> = 主要管線，點擊會顯示管徑、材質、管線種類、深度。<br>
-          <b>HYDRANT*.gml、HYDRANTL*.gml、VALVE*.gml、PIPECOVER*.gml、PIPEHAT*.gml</b> = 附加圖資，只顯示，不跳資訊；PIPECOVER 會改用最近的 PIPE 真正端點：第一條短線畫在端點上並與 PIPE 垂直，第二條短線往管線外側偏移，形成類似「〒」的符號；PIPEHAT 會先找最近的 PIPE 真正端點，若端點落在原始 ㄇ 字中間線上，改用該端點隔壁點作為連線目標，否則用端點本身；ㄇ 字凹口朝向該連線方向，且中間線與該連線垂直。<br>
-          其他名稱預設當附加圖資處理。
+          <b>HYDRANT*.gml、HYDRANTL*.gml、VALVE*.gml、PIPECOVER*.gml、PIPEHAT*.gml</b> = 附加圖資，只顯示，不跳資訊。
         </div>
         <div class="fld" style="margin-top:10px">
           <label>額外主要 GML 圖資來源（可空白；一行一個，點擊管線會顯示資訊）</label>
@@ -628,6 +627,7 @@ https://drive.google.com/file/d/你的檔案ID/view
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
           <button class="btn btn-p btn-sm" onclick="savePipeGmlSourceConfig()">💾 儲存圖資來源</button>
           <button class="btn btn-b btn-sm" onclick="updatePipeGmlCacheFromSettings()">🔄 更新圖資</button>
+          <button class="btn btn-sm" onclick="clearPipeLocalCacheFromSettings()">🧹 清除本機圖資快取</button>
         </div>
         <div id="cfg-pipe-result" style="font-size:13px;color:var(--text2);line-height:1.8;margin-top:10px">尚未更新圖資。</div>
       </div>
@@ -3639,6 +3639,37 @@ async function updatePipeGmlCacheFromSettings(){
     toast(msg);
   }
 }
+
+async function clearPipeLocalCacheFromSettings(){
+  try{
+    if(!db) await openDB();
+    setPipeConfigResult('正在清除本機圖資快取…');
+    setWaterGisStatus('正在清除本機圖資快取…');
+
+    const cleared=await clearPipeIndexedDbCache();
+    if(!cleared) throw new Error('IndexedDB 管線快取清除失敗');
+
+    waterOlPipeLoaded=false;
+    waterOlPipeFeatureCount=0;
+    waterOlPipeSourceLabel='';
+    waterOlGmlLoadPromise=null;
+    if(waterOlPipeSource) waterOlPipeSource.clear(true);
+    if(waterOlPipeStyleCache && waterOlPipeStyleCache.clear) waterOlPipeStyleCache.clear();
+    refreshMapBaseToggleButton();
+    updateMapSummaryGmlCount();
+
+    const msg='已清除本機圖資快取。若要重新載入最新圖資，請再按「🔄 更新圖資」。';
+    setPipeConfigResult(msg);
+    setWaterGisStatus(msg,6500);
+    toast(msg);
+  }catch(e){
+    const msg=`清除本機圖資快取失敗：${shortErr(e)}`;
+    setPipeConfigResult(msg);
+    setWaterGisStatus(msg,10000);
+    toast(msg);
+  }
+}
+
 async function loadPipeGmlLayer(force=false){
   const forceReload=!!force || shouldForceReloadPipeCache();
   if(forceReload) await clearPipeIndexedDbCache();

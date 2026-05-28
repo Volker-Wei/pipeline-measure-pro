@@ -677,7 +677,7 @@ https://drive.google.com/file/d/你的檔案ID/view
 const DB='TrenchDB4',VER=2,ST='records';
 const PIPE_CACHE_ST='pipe_cache';
 const PIPE_CACHE_ID='PIPE_GML_EPSG3826_TO_EPSG3857_V1';
-const PIPE_CACHE_SCHEMA_VERSION=4;
+const PIPE_CACHE_SCHEMA_VERSION=6;
 const MAPS_API_KEY='AIzaSyAA25Teu7QMzQF7LhbF1MqRsux4td_vBMo';
 const APP_CONFIG_KEY='TrenchSyncConfigV1';
 const MEASURE_CACHE_KEY='TrenchMeasureDraftCacheV1';
@@ -691,6 +691,9 @@ const RECORD_MARKER_TARGET_SCALE=1000;
 const MAP_SCALE_PIXEL_SIZE_M=0.00028;
 // 管線顯示設定：所有管線固定同一線寬，顏色依管線種類判斷。
 const PIPE_FIXED_LINE_WIDTH=2;
+const VALVE_SEGMENT_LENGTH_M=8;  // VALVE.gml 點位轉成紅色短線時的線段長度，單位：公尺
+const VALVE_SEGMENT_WIDTH=3;
+const HYDRANT_POINT_RADIUS_PX=5; // HYDRANT.gml 固定紅點半徑，單位：螢幕像素，不隨地圖縮放
 const PIPE_KIND_COLORS={
   distribution:'#006DFF', // 配水管：藍色
   conduction:'#F28C28',   // 導水管：橘色
@@ -2433,6 +2436,31 @@ function getFirstTextByLocalName(root, localName){
   const nodes=root.getElementsByTagNameNS('*',localName);
   return nodes&&nodes.length ? String(nodes[0].textContent||'').trim() : '';
 }
+function parseFirstGmlCoordinateRaw(text){
+  const token=String(text||'').trim().split(/\s+/).filter(Boolean)[0] || '';
+  const parts=token.split(',');
+  if(parts.length<2) return null;
+  const x=parseFloat(parts[0]);
+  const y=parseFloat(parts[1]);
+  if(!Number.isFinite(x)||!Number.isFinite(y)) return null;
+  return {x,y};
+}
+function createValveSegmentGeometryFromGmlPointText(coordText, angleText){
+  const p=parseFirstGmlCoordinateRaw(coordText);
+  if(!p) return null;
+  const angle=Number.parseFloat(String(angleText||'').trim());
+  // VALVE.gml 的 angle 以圖資角度控制符號方向；這裡以「由北順時針」換算成 XY 方向。
+  // 若沒有 angle，就用水平短線。
+  const deg=Number.isFinite(angle)?angle:90;
+  const rad=(90-deg)*Math.PI/180;
+  const half=VALVE_SEGMENT_LENGTH_M/2;
+  const dx=Math.cos(rad)*half;
+  const dy=Math.sin(rad)*half;
+  const p1=twd97ToWebMercator(p.x-dx,p.y-dy);
+  const p2=twd97ToWebMercator(p.x+dx,p.y+dy);
+  if(!p1 || !p2) return null;
+  return new ol.geom.LineString([p1,p2]);
+}
 function findFeatureRootFromNode(node){
   let p=node;
   while(p&&p.nodeType===1){
@@ -2504,15 +2532,17 @@ function getPipeStyle(feature){
   const color=feature.get('overlay_style_color') || getPipeColorByKind(kindValue);
   const width=Number.isFinite(explicitWidth) && explicitWidth>0 ? explicitWidth : PIPE_FIXED_LINE_WIDTH;
   if(geomType==='Point'){
-    const radius=Number(feature.get('overlay_point_radius')) || 5;
-    const key=`point|${color}|${radius}`;
+    const radius=Number(feature.get('overlay_point_radius')) || HYDRANT_POINT_RADIUS_PX || 5;
+    const zIndex=String(feature.get('overlay_kind')||'')==='hydrant' ? 30 : 10;
+    const key=`point|${color}|${radius}|${zIndex}`;
     if(waterOlPipeStyleCache.has(key)) return waterOlPipeStyleCache.get(key);
     const style=new ol.style.Style({
       image:new ol.style.Circle({
         radius,
         fill:new ol.style.Fill({color}),
-        stroke:new ol.style.Stroke({color:'#ffffff',width:1.5})
-      })
+        stroke:new ol.style.Stroke({color:'#ffffff',width:1.2})
+      }),
+      zIndex
     });
     waterOlPipeStyleCache.set(key,style);
     return style;
@@ -2610,10 +2640,30 @@ function parsePipeGmlTextToFeatures(text, options={}){
     let overlayKind='line';
     let overlayColor='';
     let overlayRadius='';
-    if(hasHydrant){ overlayKind='hydrant'; overlayColor='#f85149'; overlayRadius='5'; }
-    else if(hasValve){ overlayKind='valve'; overlayColor='#f0a500'; overlayRadius='5'; }
-    else if(!infoEnabled){ overlayKind='overlay'; overlayColor=PIPE_KIND_COLORS.other; overlayRadius='4'; }
-    const geometry=coords.length===1 ? new ol.geom.Point(coords[0]) : new ol.geom.LineString(coords);
+    let featureWidth=PIPE_FIXED_LINE_WIDTH;
+    let geometry=null;
+    if(hasHydrant){
+      overlayKind='hydrant';
+      overlayColor='#ff0000';
+      overlayRadius=String(HYDRANT_POINT_RADIUS_PX);
+      // HYDRANT.gml 固定顯示為螢幕上的紅色圓點，不隨地圖比例尺放大縮小。
+      geometry=new ol.geom.Point(coords[0]);
+    }else if(hasValve && coords.length===1){
+      overlayKind='valve_segment';
+      overlayColor='#ff0000';
+      overlayRadius='';
+      featureWidth=VALVE_SEGMENT_WIDTH;
+      geometry=createValveSegmentGeometryFromGmlPointText(node.textContent||'', getFirstTextByLocalName(root,'angle')) || new ol.geom.Point(coords[0]);
+    }else if(hasValve){
+      overlayKind='valve_segment';
+      overlayColor='#ff0000';
+      overlayRadius='';
+      featureWidth=VALVE_SEGMENT_WIDTH;
+      geometry=new ol.geom.LineString(coords);
+    }else{
+      if(!infoEnabled){ overlayKind='overlay'; overlayColor=PIPE_KIND_COLORS.other; overlayRadius='4'; }
+      geometry=coords.length===1 ? new ol.geom.Point(coords[0]) : new ol.geom.LineString(coords);
+    }
     const f=new ol.Feature({
       geometry,
       layerType:'pipe',
@@ -2627,8 +2677,8 @@ function parsePipeGmlTextToFeatures(text, options={}){
       pipe_size:pipeSize,
       pipe_size_norm:pipeSizeNorm,
       pipe_style_color:getPipeColorByKind(pipeKind),
-      pipe_style_width:PIPE_FIXED_LINE_WIDTH,
-      pipe_style_mode:'fixed-width-by-kind-color',
+      pipe_style_width:featureWidth,
+      pipe_style_mode:hasValve?'valve-segment-red':'fixed-width-by-kind-color',
       pipe_mtr:getFirstTextByLocalName(root,'pipe_mtr'),
       pipe_kind:pipeKind,
       pipe_kind_label:getPipeKindLabel(pipeKind),

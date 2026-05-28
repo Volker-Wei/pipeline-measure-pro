@@ -602,6 +602,28 @@ html,body{height:100%}
     </div>
 
     <div class="ecard">
+      <div class="echdr">🗺️ 管線圖資設定</div>
+      <div class="ecbody">
+        <div class="fld">
+          <label>Google Drive GML 資料夾 ID（自動讀取資料夾內所有 .gml）</label>
+          <input id="cfg-pipe-gml-drive-folder-id" type="text" placeholder="空白 = 不自動讀取 Drive 資料夾；可填 Google Drive 資料夾 ID">
+        </div>
+        <div class="fld" style="margin-top:10px">
+          <label>其他 GML 圖資來源（可空白；一行一個，支援 Google Drive 分享連結 / 檔案 ID / 一般網址 / PIPE.gml）</label>
+          <textarea id="cfg-pipe-gml-sources" placeholder="可空白。若要額外加入其他 GML，可填：
+https://drive.google.com/file/d/你的檔案ID/view
+或直接填 Google Drive 檔案 ID
+或 PIPE.gml" style="min-height:96px"></textarea>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+          <button class="btn btn-p btn-sm" onclick="savePipeGmlSourceConfig()">💾 儲存圖資來源</button>
+          <button class="btn btn-b btn-sm" onclick="updatePipeGmlCacheFromSettings()">🔄 更新圖資</button>
+        </div>
+        <div id="cfg-pipe-result" style="font-size:13px;color:var(--text2);line-height:1.8;margin-top:10px">尚未更新圖資。</div>
+      </div>
+    </div>
+
+    <div class="ecard">
       <div class="echdr">ℹ️ 使用提醒</div>
       <div class="ecbody" style="font-size:12px;color:var(--text2);line-height:1.8">
         1. 先把 Apps Script 後端部署成 <b>Web App</b>。<br>
@@ -610,7 +632,8 @@ html,body{height:100%}
         4. 填好 OAuth Client ID 後，先按 <b>🧪 登入 / 測試 Drive</b> 完成 Google 授權。<br>
         5. 按下 <b>💾 儲存丈量紀錄</b> 時，資料與照片只會先暫存在本機。<br>
         6. 需由使用者手動按 <b>☁️ 同步</b>，才會同步丈量資料並把照片上傳到 Google Drive。<br>
-        7. 圖片會用 <b>photo_01、photo_02...</b> 形式覆蓋重存，避免重複照片。
+        7. 圖片會用 <b>photo_01、photo_02...</b> 形式覆蓋重存，避免重複照片。<br>
+        8. 管線圖資可填多個 GML 來源；按 <b>🔄 更新圖資</b> 後會重新下載並更新本機快取。
       </div>
     </div>
   </div>
@@ -668,6 +691,7 @@ const PIPE_SIZE_COLOR_MAP={
 const PIPE_SIZE_COLOR_FALLBACK=['#58a6ff','#f0a500','#3fb950','#bc8cff','#f85149','#00c2ff','#ff7f50','#9ece6a','#e0af68','#73daca'];
 const WATERGIS_WMS_URL='https://w3.water.gov.tw/gis/api/MapProxy';
 const WATERGIS_WMS_LAYER_CODE='GMLayer';
+const DEFAULT_PIPE_GML_DRIVE_FOLDER_ID='';
 
 
 let db;
@@ -718,7 +742,7 @@ let waterOlLastRecordZoomAt=0;
 let measureMapMarkerMap=new Map();
 let focusMapRecordId=null;
 let pendingMapToastRecordId='';
-let appConfig={apiBaseUrl:'',syncIntervalMs:DEFAULT_SYNC_INTERVAL_MS,driveClientId:'',driveFolderId:''};
+let appConfig={apiBaseUrl:'',syncIntervalMs:DEFAULT_SYNC_INTERVAL_MS,driveClientId:'',driveFolderId:'',pipeGmlSources:'',pipeGmlDriveFolderId:DEFAULT_PIPE_GML_DRIVE_FOLDER_ID};
 let syncTimer=null;
 let isSyncing=false;
 let lastSyncAt='';
@@ -801,11 +825,13 @@ function loadAppConfig(){
         syncIntervalMs:Number(parsed.syncIntervalMs)||DEFAULT_SYNC_INTERVAL_MS,
         driveClientId:String(parsed.driveClientId||'').trim(),
         driveFolderId:normalizeDriveFolderId(parsed.driveFolderId||''),
+        pipeGmlSources:String(parsed.pipeGmlSources||'').trim(),
+        pipeGmlDriveFolderId:normalizePipeGmlDriveFolderId(parsed.pipeGmlDriveFolderId||DEFAULT_PIPE_GML_DRIVE_FOLDER_ID),
       };
       return;
     }
   }catch(e){}
-  appConfig={apiBaseUrl:'',syncIntervalMs:DEFAULT_SYNC_INTERVAL_MS,driveClientId:'',driveFolderId:''};
+  appConfig={apiBaseUrl:'',syncIntervalMs:DEFAULT_SYNC_INTERVAL_MS,driveClientId:'',driveFolderId:'',pipeGmlSources:'',pipeGmlDriveFolderId:DEFAULT_PIPE_GML_DRIVE_FOLDER_ID};
 }
 function saveAppConfigToStorage(){
   localStorage.setItem(APP_CONFIG_KEY,JSON.stringify(appConfig));
@@ -821,6 +847,83 @@ function hasApiConfig(){
 }
 function hasDriveConfig(){
   return !!String(appConfig.driveClientId||'').trim();
+}
+function normalizePipeGmlSourcesText(text){
+  return String(text||'')
+    .split(/\r?\n|[;,]+/)
+    .map(s=>s.trim())
+    .filter(Boolean)
+    .join('\n');
+}
+function getConfiguredPipeGmlSources(){
+  const saved=normalizePipeGmlSourcesText(appConfig.pipeGmlSources||'');
+  return saved ? saved.split('\n').map(s=>s.trim()).filter(Boolean) : [];
+}
+function extractGoogleDriveFolderId(source){
+  const s=String(source||'').trim();
+  if(!s) return '';
+  let m=s.match(/\/folders\/([A-Za-z0-9_-]{20,})/);
+  if(m) return m[1];
+  m=s.match(/[?&]folderId=([A-Za-z0-9_-]{20,})/);
+  if(m) return m[1];
+  if(/^[A-Za-z0-9_-]{20,}$/.test(s) && !/^https?:\/\//i.test(s)) return s;
+  return '';
+}
+function normalizePipeGmlDriveFolderId(value){
+  return extractGoogleDriveFolderId(value) || String(value||'').trim();
+}
+function getConfiguredPipeGmlDriveFolderId(){
+  return normalizePipeGmlDriveFolderId(appConfig.pipeGmlDriveFolderId||DEFAULT_PIPE_GML_DRIVE_FOLDER_ID);
+}
+function setPipeConfigResult(htmlOrText, isHtml=false){
+  const box=document.getElementById('cfg-pipe-result');
+  if(!box) return;
+  if(isHtml) box.innerHTML=htmlOrText;
+  else box.textContent=String(htmlOrText||'');
+}
+function renderPipeGmlConfigStatus(){
+  const box=document.getElementById('cfg-pipe-result');
+  if(!box) return;
+  const folderId=getConfiguredPipeGmlDriveFolderId();
+  const sources=getConfiguredPipeGmlSources();
+  const folderText=folderId ? `Drive 資料夾：${folderId}。` : '未設定 Drive 資料夾。';
+  const srcText=sources.length ? `另有 ${sources.length} 個額外圖資來源。` : '未設定額外圖資來源。';
+  const cacheText=waterOlPipeFeatureCount ? `目前已載入管線 ${waterOlPipeFeatureCount} 筆。` : '尚未載入管線快取。';
+  box.textContent=`${folderText} ${srcText} ${cacheText}`;
+}
+function savePipeGmlSourceConfig(){
+  const folderInput=document.getElementById('cfg-pipe-gml-drive-folder-id');
+  const ta=document.getElementById('cfg-pipe-gml-sources');
+  appConfig.pipeGmlDriveFolderId=normalizePipeGmlDriveFolderId(folderInput?folderInput.value:'');
+  appConfig.pipeGmlSources=normalizePipeGmlSourcesText(ta?ta.value:'');
+  if(folderInput) folderInput.value=appConfig.pipeGmlDriveFolderId;
+  if(ta) ta.value=appConfig.pipeGmlSources;
+  saveAppConfigToStorage();
+  renderPipeGmlConfigStatus();
+  toast('已儲存管線圖資來源');
+}
+function extractGoogleDriveFileId(source){
+  const s=String(source||'').trim();
+  if(!s) return '';
+  let m=s.match(/\/file\/d\/([A-Za-z0-9_-]{20,})/);
+  if(m) return m[1];
+  m=s.match(/[?&]id=([A-Za-z0-9_-]{20,})/);
+  if(m) return m[1];
+  m=s.match(/\/d\/([A-Za-z0-9_-]{20,})/);
+  if(m) return m[1];
+  if(/^[A-Za-z0-9_-]{25,}$/.test(s) && !/^https?:\/\//i.test(s)) return s;
+  return '';
+}
+function getReadablePipeSourceLabel(source, index=0){
+  const s=String(source||'').trim();
+  const driveId=extractGoogleDriveFileId(s);
+  if(driveId) return `Google Drive GML #${index+1}`;
+  try{
+    const u=new URL(s, document.baseURI || location.href);
+    return u.pathname.split('/').filter(Boolean).pop() || u.hostname || `GML #${index+1}`;
+  }catch(e){
+    return s || `GML #${index+1}`;
+  }
 }
 function getMeasureCache(){
   try{
@@ -921,11 +1024,16 @@ function renderSyncUi(){
   const ls=document.getElementById('cfg-last-sync');
   const driveClient=document.getElementById('cfg-drive-client-id');
   const driveFolder=document.getElementById('cfg-drive-folder-id');
+  const pipeDriveFolder=document.getElementById('cfg-pipe-gml-drive-folder-id');
+  const pipeSources=document.getElementById('cfg-pipe-gml-sources');
   if(api) api.value=appConfig.apiBaseUrl||'';
   if(ms) ms.value='manual';
   if(ls) ls.value=lastSyncAt?fmtDateTime(lastSyncAt):'尚未同步';
   if(driveClient) driveClient.value=appConfig.driveClientId||'';
   if(driveFolder) driveFolder.value=appConfig.driveFolderId||'';
+  if(pipeDriveFolder) pipeDriveFolder.value=appConfig.pipeGmlDriveFolderId||'';
+  if(pipeSources) pipeSources.value=appConfig.pipeGmlSources||'';
+  renderPipeGmlConfigStatus();
   renderDriveStatus();
   updateSyncCaption(hasApiConfig()?`${isSyncing?'同步中…':'已設定手動同步'}${lastSyncAt?`・${fmtDateTime(lastSyncAt)}`:''}`:'屏東所設計現場用・尚未設定同步');
   updateSyncButtons();
@@ -943,6 +1051,10 @@ async function saveSyncConfig(){
   appConfig.syncIntervalMs=Number(document.getElementById('cfg-sync-ms').value)||DEFAULT_SYNC_INTERVAL_MS;
   appConfig.driveClientId=String(document.getElementById('cfg-drive-client-id').value||'').trim();
   appConfig.driveFolderId=normalizeDriveFolderId(document.getElementById('cfg-drive-folder-id').value);
+  const pipeDriveFolder=document.getElementById('cfg-pipe-gml-drive-folder-id');
+  const pipeSources=document.getElementById('cfg-pipe-gml-sources');
+  if(pipeDriveFolder) appConfig.pipeGmlDriveFolderId=normalizePipeGmlDriveFolderId(pipeDriveFolder.value);
+  if(pipeSources) appConfig.pipeGmlSources=normalizePipeGmlSourcesText(pipeSources.value);
   saveAppConfigToStorage();
   renderSyncUi();
   startAutoSync();
@@ -1071,6 +1183,10 @@ async function driveFetch(url, options={}, interactive=true){
 async function testDriveConnection(){
   appConfig.driveClientId=String(document.getElementById('cfg-drive-client-id').value||'').trim();
   appConfig.driveFolderId=normalizeDriveFolderId(document.getElementById('cfg-drive-folder-id').value);
+  const pipeDriveFolder=document.getElementById('cfg-pipe-gml-drive-folder-id');
+  const pipeSources=document.getElementById('cfg-pipe-gml-sources');
+  if(pipeDriveFolder) appConfig.pipeGmlDriveFolderId=normalizePipeGmlDriveFolderId(pipeDriveFolder.value);
+  if(pipeSources) appConfig.pipeGmlSources=normalizePipeGmlSourcesText(pipeSources.value);
   saveAppConfigToStorage();
   renderSyncUi();
   if(!hasDriveConfig()){
@@ -2563,28 +2679,202 @@ function withCacheBuster(url){
     return `${url}${sep}_gmlts=${Date.now()}`;
   }
 }
+function validatePipeGmlText(text, sourceLabel='GML'){
+  const s=String(text||'');
+  if(!s.trim()) throw new Error(`${sourceLabel} 是空檔案`);
+  if(!/gml:coordinates|<coordinates/i.test(s.slice(0,1200000)) && !/gml:coordinates|<coordinates/i.test(s)){
+    throw new Error(`${sourceLabel} 不像 GML 管線檔`);
+  }
+  return s;
+}
+async function fetchPipeGmlTextFromGoogleDrive(fileId, sourceLabel='Google Drive GML'){
+  if(!fileId) throw new Error('Google Drive 檔案 ID 空白');
+  if(!hasDriveConfig()) throw new Error('讀取 Google Drive 圖資前，請先在設定頁填入 OAuth Client ID，並按「登入 / 測試 Drive」完成授權');
+  setWaterGisStatus(`讀取 ${sourceLabel}…`);
+  setPipeConfigResult(`讀取 ${sourceLabel}…`);
+  const resp=await driveFetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`,{},true);
+  const text=await resp.text();
+  return validatePipeGmlText(text, sourceLabel);
+}
+async function fetchPipeGmlTextFromUrl(url, sourceLabel='GML', cacheBust=false){
+  const target=cacheBust ? withCacheBuster(url) : url;
+  setWaterGisStatus(`嘗試讀取 GML：${target}`);
+  setPipeConfigResult(`嘗試讀取 GML：${target}`);
+  const targetUrl=new URL(target, document.baseURI || location.href);
+  const sameOrigin=targetUrl.origin===location.origin;
+  const resp=await fetch(targetUrl.href,{cache:cacheBust?'reload':'default',credentials:sameOrigin?'same-origin':'omit'});
+  if(!resp.ok) throw new Error(`${sourceLabel} HTTP ${resp.status}`);
+  const text=await resp.text();
+  return validatePipeGmlText(text, sourceLabel);
+}
+async function fetchSinglePipeGmlSource(source, index=0, cacheBust=false){
+  const raw=String(source||'').trim();
+  if(!raw) throw new Error('GML 圖資來源空白');
+  const driveId=extractGoogleDriveFileId(raw);
+  const label=getReadablePipeSourceLabel(raw,index);
+  if(driveId){
+    const text=await fetchPipeGmlTextFromGoogleDrive(driveId,label);
+    return {text,source:raw,sourceLabel:label,sourceUrl:`google-drive:${driveId}`};
+  }
+  const text=await fetchPipeGmlTextFromUrl(raw,label,cacheBust);
+  return {text,source:raw,sourceLabel:label,sourceUrl:raw};
+}
+async function listGoogleDriveGmlFilesInFolder(folderId){
+  const id=normalizePipeGmlDriveFolderId(folderId);
+  if(!id) return [];
+  if(!hasDriveConfig()) throw new Error('讀取 Google Drive 資料夾圖資前，請先在設定頁填入 OAuth Client ID，並按「登入 / 測試 Drive」完成授權');
+  const out=[];
+  let pageToken='';
+  do{
+    const q=`'${escapeDriveQueryLiteral(id)}' in parents and trashed = false`;
+    const url=new URL('https://www.googleapis.com/drive/v3/files');
+    url.searchParams.set('q', q);
+    url.searchParams.set('fields','nextPageToken,files(id,name,mimeType,size,modifiedTime)');
+    url.searchParams.set('pageSize','1000');
+    url.searchParams.set('orderBy','name');
+    if(pageToken) url.searchParams.set('pageToken',pageToken);
+    setPipeConfigResult(`讀取 Drive 資料夾清單中…`);
+    setWaterGisStatus(`讀取 Drive 資料夾清單中…`);
+    const resp=await driveFetch(url.toString(),{},true);
+    const data=await resp.json();
+    out.push(...(Array.isArray(data.files)?data.files:[]));
+    pageToken=data.nextPageToken||'';
+  }while(pageToken);
+  return out
+    .filter(f=>f && f.mimeType!=='application/vnd.google-apps.folder' && /\.gml$/i.test(String(f.name||'')))
+    .sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'zh-Hant'));
+}
+async function fetchPipeGmlTextsFromDriveFolder(cacheBust=false){
+  const folderId=getConfiguredPipeGmlDriveFolderId();
+  if(!folderId) return null;
+  const files=await listGoogleDriveGmlFilesInFolder(folderId);
+  if(!files.length) throw new Error(`Drive 資料夾內找不到 .gml 檔：${folderId}`);
+  const loaded=[];
+  const errors=[];
+  for(let i=0;i<files.length;i++){
+    const file=files[i];
+    const label=`Drive資料夾/${file.name||('GML #'+(i+1))}`;
+    try{
+      setPipeConfigResult(`讀取資料夾 GML ${i+1}/${files.length}：${file.name}`);
+      setWaterGisStatus(`讀取資料夾 GML ${i+1}/${files.length}：${file.name}`);
+      const text=await fetchPipeGmlTextFromGoogleDrive(file.id,label);
+      loaded.push({text,source:file.id,sourceLabel:label,sourceUrl:`google-drive-folder:${folderId}/${file.id}`});
+    }catch(e){
+      errors.push(`${file.name||file.id}：${shortErr(e)}`);
+    }
+  }
+  if(!loaded.length) throw new Error(`Drive 資料夾內 GML 全部讀取失敗：${errors.join('；')}`);
+  if(errors.length) setPipeConfigResult(`資料夾部分 GML 讀取失敗，但已載入 ${loaded.length}/${files.length} 個：${errors.join('；')}`);
+  return loaded;
+}
+async function fetchPipeGmlTextsFromConfiguredSources(cacheBust=false){
+  const sources=getConfiguredPipeGmlSources();
+  if(!sources.length) return null;
+  const loaded=[];
+  const errors=[];
+  for(let i=0;i<sources.length;i++){
+    const src=sources[i];
+    try{
+      const item=await fetchSinglePipeGmlSource(src,i,cacheBust);
+      loaded.push(item);
+      setPipeConfigResult(`已讀取 ${loaded.length}/${sources.length} 個 GML：${item.sourceLabel}`);
+    }catch(e){
+      errors.push(`${getReadablePipeSourceLabel(src,i)}：${shortErr(e)}`);
+    }
+  }
+  if(!loaded.length) throw new Error(`所有 GML 圖資來源都讀取失敗：${errors.join('；')}`);
+  if(errors.length) setPipeConfigResult(`部分 GML 讀取失敗，但已載入 ${loaded.length} 個來源：${errors.join('；')}`);
+  return loaded;
+}
 async function fetchPipeGmlTextFromSameFolder(){
   const candidates=getPipeGmlUrlCandidates();
   if(String(location.protocol||'').toLowerCase()==='file:'){
     throw new Error('直接用 file:// 開啟 HTML 時，瀏覽器通常會禁止自動讀取同資料夾 PIPE.gml；請用 GitHub Pages 或本機伺服器開啟。');
   }
   let lastErr=null;
-  for(const url of candidates){
+  for(let i=0;i<candidates.length;i++){
+    const url=candidates[i];
     try{
-      setWaterGisStatus(`嘗試讀取 GML：${url}`);
-      const resp=await fetch(url,{cache:'default',credentials:'same-origin'});
-      if(!resp.ok){ lastErr=new Error(`${url} HTTP ${resp.status}`); continue; }
-      const text=await resp.text();
-      if(!String(text||'').trim()){ lastErr=new Error(`${url} 是空檔案`); continue; }
-      if(!/gml:coordinates|<coordinates/i.test(text.slice(0,1200000)) && !/gml:coordinates|<coordinates/i.test(text)){
-        lastErr=new Error(`${url} 不像 GML 管線檔`); continue;
-      }
-      return {text,source:url};
+      const text=await fetchPipeGmlTextFromUrl(url,getReadablePipeSourceLabel(url,i),false);
+      return {text,source:url,sourceLabel:getReadablePipeSourceLabel(url,i),sourceUrl:url};
     }catch(e){
       lastErr=e;
     }
   }
-  throw new Error(`自動讀取同資料夾 PIPE.gml 失敗：${shortErr(lastErr||new Error('找不到檔案'))}。請確認 GitHub Pages 上實際檔名大小寫、HTML 與 PIPE.gml 是否在同一層，或在網址後加 ?gml=你的檔名.gml 指定檔案。`);
+  throw new Error(`自動讀取同資料夾 PIPE.gml 失敗：${shortErr(lastErr||new Error('找不到檔案'))}。請確認 GitHub Pages 上實際檔名大小寫、HTML 與 PIPE.gml 是否在同一層，或在設定頁填入 Google Drive 圖資來源。`);
+}
+async function fetchPipeGmlTextsForLayer(cacheBust=false){
+  const loaded=[];
+  const errors=[];
+  try{
+    const folderLoaded=await fetchPipeGmlTextsFromDriveFolder(cacheBust);
+    if(folderLoaded && folderLoaded.length) loaded.push(...folderLoaded);
+  }catch(e){
+    errors.push(shortErr(e));
+  }
+  try{
+    const configured=await fetchPipeGmlTextsFromConfiguredSources(cacheBust);
+    if(configured && configured.length) loaded.push(...configured);
+  }catch(e){
+    errors.push(shortErr(e));
+  }
+  if(loaded.length){
+    if(errors.length) setPipeConfigResult(`已載入 ${loaded.length} 個 GML；部分來源略過：${errors.join('；')}`);
+    return loaded;
+  }
+  if(getConfiguredPipeGmlDriveFolderId() || getConfiguredPipeGmlSources().length){
+    throw new Error(`設定的管線圖資來源讀取失敗：${errors.join('；')}`);
+  }
+  const fallback=await fetchPipeGmlTextFromSameFolder();
+  return [fallback];
+}
+function mergePipeFeaturesFromLoadedGml(loadedList){
+  const all=[];
+  const labels=[];
+  const urls=[];
+  (loadedList||[]).forEach((item,idx)=>{
+    const label=item.sourceLabel||item.source||`GML #${idx+1}`;
+    setWaterGisStatus(`解析 ${label} 管線圖層中…`);
+    setPipeConfigResult(`解析 ${label} 管線圖層中…`);
+    const features=parsePipeGmlTextToFeatures(item.text);
+    features.forEach(f=>f.set('source_gml',label));
+    all.push(...features);
+    labels.push(label);
+    urls.push(item.sourceUrl||item.source||'');
+  });
+  return {features:all,sourceLabel:labels.length>1?`${labels.length} 個 GML來源`:labels[0]||'PIPE.gml',sourceUrl:urls.filter(Boolean).join('\n')};
+}
+async function rebuildPipeCacheFromSources(cacheBust=true){
+  const loadedList=await fetchPipeGmlTextsForLayer(cacheBust);
+  const merged=mergePipeFeaturesFromLoadedGml(loadedList);
+  if(!merged.features.length) throw new Error('GML 內沒有可顯示的管線線段');
+  await clearPipeIndexedDbCache();
+  const saved=await savePipeFeaturesToIndexedDbCache(merged.features, merged.sourceLabel, merged.sourceUrl);
+  if(!saved) throw new Error('管線資料已解析，但 IndexedDB 快取寫入失敗');
+  return merged;
+}
+async function updatePipeGmlCacheFromSettings(){
+  try{
+    savePipeGmlSourceConfig();
+    if(!ensureOpenLayersReady()) throw new Error('OpenLayers / proj4 載入失敗，無法更新圖資');
+    setPipeConfigResult('正在更新管線圖資，請勿關閉頁面…');
+    const merged=await rebuildPipeCacheFromSources(true);
+    waterOlPipeLoaded=false;
+    waterOlPipeFeatureCount=0;
+    waterOlGmlLoadPromise=null;
+    if(waterOlPipeSource){
+      applyPipeFeatures(merged.features, merged.sourceLabel);
+    }
+    const msg=`更新完成：${merged.sourceLabel}，管線 ${merged.features.length} 筆，已寫入本機快取`;
+    setPipeConfigResult(msg);
+    setWaterGisStatus(msg,6500);
+    toast(msg);
+  }catch(e){
+    const msg=`更新圖資失敗：${shortErr(e)}`;
+    setPipeConfigResult(msg);
+    setWaterGisStatus(msg,10000);
+    toast(msg);
+  }
 }
 async function loadPipeGmlLayer(force=false){
   const forceReload=!!force || shouldForceReloadPipeCache();
@@ -2600,20 +2890,15 @@ async function loadPipeGmlLayer(force=false){
         if(cached && cached.features && cached.features.length){
           applyPipeFeatures(cached.features, `IndexedDB快取 ${cached.count||cached.features.length} 筆`);
           setWaterGisStatus(`已從 IndexedDB 快取載入管線 ${cached.count||cached.features.length} 筆`, 4500);
+          renderPipeGmlConfigStatus();
           return waterOlPipeFeatureCount;
         }
       }
-      setWaterGisStatus('第一次載入：自動讀取同資料夾 PIPE.gml 中…');
-      const loaded=await fetchPipeGmlTextFromSameFolder();
-      setWaterGisStatus('第一次載入：解析 PIPE.gml 管線圖層中…');
-      const features=parsePipeGmlTextToFeatures(loaded.text);
-      applyPipeFeatures(features, loaded.source||'PIPE.gml');
-      const saved=await savePipeFeaturesToIndexedDbCache(features, loaded.source||'PIPE.gml', loaded.source||'');
-      if(saved){
-        setWaterGisStatus(`已載入並建立 IndexedDB 快取：管線 ${waterOlPipeFeatureCount} 筆`, 5500);
-      }else{
-        setWaterGisStatus(`已載入管線 ${waterOlPipeFeatureCount} 筆，但 IndexedDB 快取寫入失敗`, 7500);
-      }
+      setWaterGisStatus('第一次載入：讀取管線 GML 圖資中…');
+      const merged=await rebuildPipeCacheFromSources(forceReload);
+      applyPipeFeatures(merged.features, merged.sourceLabel||'PIPE.gml');
+      setWaterGisStatus(`已載入並建立 IndexedDB 快取：管線 ${waterOlPipeFeatureCount} 筆`, 5500);
+      renderPipeGmlConfigStatus();
       return waterOlPipeFeatureCount;
     }catch(e){
       waterOlPipeLoaded=false;

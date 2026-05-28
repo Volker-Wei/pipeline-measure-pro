@@ -677,7 +677,7 @@ https://drive.google.com/file/d/你的檔案ID/view
 const DB='TrenchDB4',VER=2,ST='records';
 const PIPE_CACHE_ST='pipe_cache';
 const PIPE_CACHE_ID='PIPE_GML_EPSG3826_TO_EPSG3857_V1';
-const PIPE_CACHE_SCHEMA_VERSION=9;
+const PIPE_CACHE_SCHEMA_VERSION=10;
 const MAPS_API_KEY='AIzaSyAA25Teu7QMzQF7LhbF1MqRsux4td_vBMo';
 const APP_CONFIG_KEY='TrenchSyncConfigV1';
 const MEASURE_CACHE_KEY='TrenchMeasureDraftCacheV1';
@@ -2458,6 +2458,16 @@ function getFirstTextByLocalName(root, localName){
   const nodes=root.getElementsByTagNameNS('*',localName);
   return nodes&&nodes.length ? String(nodes[0].textContent||'').trim() : '';
 }
+function getValveTypeLabel(value){
+  const raw=String(value||'').trim();
+  if(!raw) return '';
+  // 逆水閥 / 逆止閥：常見 GML 代碼以 C 表示 Check valve；若來源已是中文也一併判斷。
+  if(raw.toUpperCase()==='C' || raw.includes('逆水') || raw.includes('逆止')) return '逆水閥';
+  return raw;
+}
+function isReverseWaterValveType(value){
+  return getValveTypeLabel(value)==='逆水閥';
+}
 function parseFirstGmlCoordinateRaw(text){
   const token=String(text||'').trim().split(/\s+/).filter(Boolean)[0] || '';
   const parts=token.split(',');
@@ -2467,14 +2477,14 @@ function parseFirstGmlCoordinateRaw(text){
   if(!Number.isFinite(x)||!Number.isFinite(y)) return null;
   return {x,y};
 }
-function createValveSegmentGeometryFromGmlPointText(coordText, angleText){
+function createValveSegmentGeometryFromGmlPointText(coordText, angleText, valveTypeText=''){
   const p=parseFirstGmlCoordinateRaw(coordText);
   if(!p) return null;
   const angle=Number.parseFloat(String(angleText||'').trim());
   // VALVE.gml 的 angle 控制符號方向；若沒有 angle，就用水平短線。
-  const deg=Number.isFinite(angle)?angle:90;
-  // VALVE.gml 的 angle 已是圖面方向角，原本用 (90-angle) 會整體偏 90 度。
-  // 改成 -angle，符合 OpenLayers / WebMercator 的 X 軸座標方向。
+  let deg=Number.isFinite(angle)?angle:90;
+  // 逆水閥的圖面符號與一般閥類差 90 度，所以額外旋轉 90 度。
+  if(isReverseWaterValveType(valveTypeText)) deg+=90;
   const rad=(-deg)*Math.PI/180;
   const half=VALVE_SEGMENT_LENGTH_M/2;
   const dx=Math.cos(rad)*half;
@@ -2672,6 +2682,7 @@ function parsePipeGmlTextToFeatures(text, options={}){
     const pipeKind=getFirstTextByLocalName(root,'pipe_kind');
     const pipeType=getFirstTextByLocalName(root,'pipe_type');
     const hasHydrant=!!(getFirstTextByLocalName(root,'hydrant_id') || getFirstTextByLocalName(root,'hyid'));
+    const valveType=getFirstTextByLocalName(root,'valve_type');
     const hasValve=!!(getFirstTextByLocalName(root,'valve_id') || getFirstTextByLocalName(root,'vid'));
     let overlayKind='line';
     let overlayColor='';
@@ -2689,7 +2700,7 @@ function parsePipeGmlTextToFeatures(text, options={}){
       overlayColor='#ff0000';
       overlayRadius='';
       featureWidth=VALVE_SEGMENT_WIDTH;
-      geometry=createValveSegmentGeometryFromGmlPointText(node.textContent||'', getFirstTextByLocalName(root,'angle')) || new ol.geom.Point(coords[0]);
+      geometry=createValveSegmentGeometryFromGmlPointText(node.textContent||'', getFirstTextByLocalName(root,'angle'), valveType) || new ol.geom.Point(coords[0]);
     }else if(hasValve){
       overlayKind='valve_segment';
       overlayColor='#ff0000';

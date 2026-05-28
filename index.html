@@ -605,22 +605,25 @@ html,body{height:100%}
       <div class="echdr">🗺️ 管線圖資設定</div>
       <div class="ecbody">
         <div class="fld">
-          <label>Google Drive GML 資料夾 ID（自動讀取資料夾內所有 .gml）</label>
+          <label>Google Drive GML 資料夾 ID（可空白；會讀取同一資料夾內所有 .gml 檔，並依檔名自動分類）</label>
           <input id="cfg-pipe-gml-drive-folder-id" type="text" placeholder="空白 = 不自動讀取 Drive 資料夾；可填 Google Drive 資料夾 ID">
         </div>
+        <div class="info-box" style="margin-top:10px">
+          同一個 Drive 資料夾內的 GML 會自動分類：<br>
+          <b>PIPE*.gml</b> = 主要管線，點擊會顯示管徑、材質、管線種類、深度。<br>
+          <b>HYDRANT*.gml、HYDRANTL*.gml、VALVE*.gml</b> = 附加圖資，只顯示，不跳資訊。<br>
+          其他名稱預設當附加圖資處理。
+        </div>
         <div class="fld" style="margin-top:10px">
-          <label>主要 GML 圖資來源（可空白；一行一個，點擊管線會顯示管徑/材質/種類/深度）</label>
+          <label>額外主要 GML 圖資來源（可空白；一行一個，點擊管線會顯示資訊）</label>
           <textarea id="cfg-pipe-gml-sources" placeholder="可空白。若要額外加入主要管線 GML，可填：
 https://drive.google.com/file/d/你的檔案ID/view
 或直接填 Google Drive 檔案 ID
 或 PIPE.gml" style="min-height:96px"></textarea>
         </div>
         <div class="fld" style="margin-top:10px">
-          <label>附加 GML 圖資來源（可空白；一行一個，只顯示在管線圖資，點擊不顯示資訊）</label>
-          <textarea id="cfg-pipe-gml-overlay-sources" placeholder="可貼你另外 3 個 GML 來源，一行一個：
-https://drive.google.com/file/d/第一個檔案ID/view
-https://drive.google.com/file/d/第二個檔案ID/view
-https://drive.google.com/file/d/第三個檔案ID/view" style="min-height:96px"></textarea>
+          <label>額外附加 GML 圖資來源（可空白；一行一個，只顯示在管線圖資，點擊不顯示資訊）</label>
+          <textarea id="cfg-pipe-gml-overlay-sources" placeholder="可空白。若有不在上方 Drive 資料夾內的附加圖資，再貼在這裡，一行一個。" style="min-height:96px"></textarea>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
           <button class="btn btn-p btn-sm" onclick="savePipeGmlSourceConfig()">💾 儲存圖資來源</button>
@@ -640,7 +643,7 @@ https://drive.google.com/file/d/第三個檔案ID/view" style="min-height:96px">
         5. 按下 <b>💾 儲存丈量紀錄</b> 時，資料與照片只會先暫存在本機。<br>
         6. 需由使用者手動按 <b>☁️ 同步</b>，才會同步丈量資料並把照片上傳到 Google Drive。<br>
         7. 圖片會用 <b>photo_01、photo_02...</b> 形式覆蓋重存，避免重複照片。<br>
-        8. 管線圖資可填多個主要 GML 與附加 GML；主要 GML 可點擊顯示資訊，附加 GML 只顯示不跳資訊；按 <b>🔄 更新圖資</b> 後會重新下載並更新本機快取。
+        8. 管線圖資可把 PIPE、HYDRANT、HYDRANTL、VALVE 等 GML 放在同一個 Drive 資料夾；系統會依檔名自動分類，按 <b>🔄 更新圖資</b> 後會重新下載並更新本機快取。
       </div>
     </div>
   </div>
@@ -689,7 +692,7 @@ const MAP_SCALE_PIXEL_SIZE_M=0.00028;
 // 管線顯示設定：所有管線固定同一線寬，顏色依管線種類判斷。
 const PIPE_FIXED_LINE_WIDTH=2;
 const PIPE_KIND_COLORS={
-  distribution:'#003B8E', // 配水管：深藍色
+  distribution:'#006DFF', // 配水管：藍色
   conduction:'#F28C28',   // 導水管：橘色
   other:'#8B5A2B'         // 其他：棕色
 };
@@ -901,7 +904,7 @@ function renderPipeGmlConfigStatus(){
   const folderId=getConfiguredPipeGmlDriveFolderId();
   const sources=getConfiguredPipeGmlSources();
   const overlaySources=getConfiguredPipeGmlOverlaySources();
-  const folderText=folderId ? `Drive 資料夾：${folderId}。` : '未設定 Drive 資料夾。';
+  const folderText=folderId ? `Drive 資料夾：${folderId}（依檔名自動分類）。` : '未設定 Drive 資料夾。';
   const srcText=sources.length ? `另有 ${sources.length} 個主要圖資來源。` : '未設定主要額外圖資來源。';
   const overlayText=overlaySources.length ? `附加顯示圖資 ${overlaySources.length} 個。` : '未設定附加顯示圖資。';
   const cacheText=waterOlPipeFeatureCount ? `目前已載入管線 ${waterOlPipeFeatureCount} 筆。` : '尚未載入管線快取。';
@@ -2461,13 +2464,12 @@ function getPipeColorBySize(size){
 }
 function getPipeKindLabel(value){
   const raw=String(value||'').trim();
-  if(!raw) return '其他';
-  const lower=raw.toLowerCase();
+  if(!raw) return '—';
   if(raw==='3' || raw.includes('配水')) return '配水管';
   if(raw==='1' || raw.includes('導水')) return '導水管';
   if(raw==='2' || raw.includes('送水')) return '送水管';
   if(raw==='4' || raw.includes('給水')) return '給水管';
-  if(raw==='0') return '其他';
+  // 不再把未知值或 0 顯示成「其他」，保留 GML 原本資訊。
   return raw;
 }
 function getPipeColorByKind(value){
@@ -2783,6 +2785,18 @@ async function fetchSinglePipeGmlSource(source, index=0, cacheBust=false){
   const text=await fetchPipeGmlTextFromUrl(raw,label,cacheBust);
   return {text,source:raw,sourceLabel:label,sourceUrl:raw};
 }
+function classifyDriveGmlFileRole(fileName){
+  const name=String(fileName||'').trim().toLowerCase();
+  const base=name.replace(/\.gml$/i,'');
+  // 主要管線：PIPE、PIPE_XXX、PIPE-XXX、PIPE(XXX)
+  if(/^pipe(?:$|[_\-\s(])/.test(base)) return 'main';
+  // 附加圖資：消防栓、消防栓連接線、制水閥等，只顯示不跳資訊
+  if(/^hydrant(?:$|[_\-\s(])/.test(base)) return 'overlay';
+  if(/^hydrantl(?:$|[_\-\s(])/.test(base)) return 'overlay';
+  if(/^valve(?:$|[_\-\s(])/.test(base)) return 'overlay';
+  // 其他 GML 預設只顯示，避免誤跳管線資訊
+  return 'overlay';
+}
 async function listGoogleDriveGmlFilesInFolder(folderId){
   const id=normalizePipeGmlDriveFolderId(folderId);
   if(!id) return [];
@@ -2812,23 +2826,24 @@ async function fetchPipeGmlTextsFromDriveFolder(cacheBust=false){
   const folderId=getConfiguredPipeGmlDriveFolderId();
   if(!folderId) return null;
   const files=await listGoogleDriveGmlFilesInFolder(folderId);
-  if(!files.length) throw new Error(`Drive 資料夾內找不到 .gml 檔：${folderId}`);
+  if(!files.length) throw new Error('Drive GML 資料夾內找不到 .gml 檔案');
   const loaded=[];
-  const errors=[];
+  let mainCount=0, overlayCount=0;
   for(let i=0;i<files.length;i++){
-    const file=files[i];
-    const label=`Drive資料夾/${file.name||('GML #'+(i+1))}`;
-    try{
-      setPipeConfigResult(`讀取資料夾 GML ${i+1}/${files.length}：${file.name}`);
-      setWaterGisStatus(`讀取資料夾 GML ${i+1}/${files.length}：${file.name}`);
-      const text=await fetchPipeGmlTextFromGoogleDrive(file.id,label);
-      loaded.push({text,source:file.id,sourceLabel:label,sourceUrl:`google-drive-folder:${folderId}/${file.id}`});
-    }catch(e){
-      errors.push(`${file.name||file.id}：${shortErr(e)}`);
-    }
+    const f=files[i];
+    const role=classifyDriveGmlFileRole(f.name||'');
+    const infoEnabled=role==='main';
+    if(infoEnabled) mainCount++; else overlayCount++;
+    setPipeConfigResult(`正在下載 Drive 資料夾 GML ${i+1}/${files.length}：${f.name||f.id}（${infoEnabled?'主要管線':'附加圖資'}）`);
+    const text=await fetchPipeGmlTextFromGoogleDrive(f.id);
+    loaded.push({
+      source:`drive-folder:${folderId}/${f.id}`,
+      sourceLabel:`Drive資料夾/${f.name||f.id}`,
+      text,
+      infoEnabled
+    });
   }
-  if(!loaded.length) throw new Error(`Drive 資料夾內 GML 全部讀取失敗：${errors.join('；')}`);
-  if(errors.length) setPipeConfigResult(`資料夾部分 GML 讀取失敗，但已載入 ${loaded.length}/${files.length} 個：${errors.join('；')}`);
+  setPipeConfigResult(`Drive 資料夾 GML 讀取完成：主要管線 ${mainCount} 個、附加圖資 ${overlayCount} 個`);
   return loaded;
 }
 async function fetchPipeGmlTextsFromConfiguredSources(cacheBust=false){

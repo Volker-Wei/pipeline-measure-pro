@@ -769,6 +769,7 @@ let waterOlMarkerFeatureMap=new Map();
 let waterOlStatusEl=null;
 let waterOlLastRecordZoomCoord=null;
 let waterOlLastRecordZoomAt=0;
+let pendingSharedMapViewState=null; // 切換 Google 地圖 / 管線圖資時保留中心點與縮放
 let measureMapMarkerMap=new Map();
 let focusMapRecordId=null;
 let pendingMapToastRecordId='';
@@ -2318,15 +2319,68 @@ function updateMapSummaryGmlCount(){
     summaryEl.textContent=txt.replace(/GML管線\s*[^；,，]*筆/, `GML管線 ${waterOlPipeFeatureCount} 筆`);
   }
 }
+
+function captureCurrentMapViewState(){
+  try{
+    if(currentMapBaseMode==='watergis' && waterOlMap){
+      const view=waterOlMap.getView();
+      const center=view.getCenter();
+      if(center){
+        const lonlat=ol.proj.toLonLat(center);
+        return {
+          center:{lat:lonlat[1],lng:lonlat[0]},
+          zoom:view.getZoom(),
+          source:'watergis'
+        };
+      }
+    }
+    if(currentMapBaseMode==='google' && measureMap){
+      const c=measureMap.getCenter();
+      if(c){
+        return {
+          center:{lat:c.lat(),lng:c.lng()},
+          zoom:measureMap.getZoom(),
+          source:'google'
+        };
+      }
+    }
+  }catch(e){}
+  return null;
+}
+function applySharedViewToGoogleMap(state){
+  if(!state || !state.center || !measureMap) return false;
+  try{
+    measureMap.setCenter(state.center);
+    if(Number.isFinite(Number(state.zoom))) measureMap.setZoom(Number(state.zoom));
+    return true;
+  }catch(e){ return false; }
+}
+function applySharedViewToWaterGisMap(state){
+  if(!state || !state.center || !waterOlMap) return false;
+  try{
+    const view=waterOlMap.getView();
+    view.setCenter(ol.proj.fromLonLat([Number(state.center.lng),Number(state.center.lat)]));
+    if(Number.isFinite(Number(state.zoom))) view.setZoom(Number(state.zoom));
+    lockWaterGisNorthUp();
+    return true;
+  }catch(e){ return false; }
+}
+
 function setActiveMapEngine(mode){
   if(!googleMapDiv||!waterGisMapDiv) return;
   const isWater=mode==='watergis';
   googleMapDiv.classList.toggle('active',!isWater);
   waterGisMapDiv.classList.toggle('active',isWater);
   if(isWater){
-    setTimeout(()=>{ if(waterOlMap) waterOlMap.updateSize(); },80);
+    setTimeout(()=>{
+      if(waterOlMap) waterOlMap.updateSize();
+      if(pendingSharedMapViewState && pendingSharedMapViewState.source==='google') applySharedViewToWaterGisMap(pendingSharedMapViewState);
+    },80);
   }else{
-    setTimeout(()=>{ if(window.google&&measureMap) google.maps.event.trigger(measureMap,'resize'); },80);
+    setTimeout(()=>{
+      if(window.google&&measureMap) google.maps.event.trigger(measureMap,'resize');
+      if(pendingSharedMapViewState && pendingSharedMapViewState.source==='watergis') applySharedViewToGoogleMap(pendingSharedMapViewState);
+    },80);
   }
 }
 function setupProj4ForTaiwan(){
@@ -4110,7 +4164,12 @@ async function initWaterGisMeasureMap(points, emptyEl){
   setTimeout(()=>{ try{ if(waterOlMap) waterOlMap.updateSize(); }catch(e){} },80);
   const gmlCount=await loadPipeGmlLayer();
   const clickedDuringInit=waterOlLastRecordZoomCoord && waterOlLastRecordZoomAt>=initStartedAt;
-  if(clickedDuringInit){
+  const restoredSharedView=pendingSharedMapViewState && pendingSharedMapViewState.source==='google'
+    ? applySharedViewToWaterGisMap(pendingSharedMapViewState)
+    : false;
+  if(restoredSharedView){
+    pendingSharedMapViewState=null;
+  }else if(clickedDuringInit){
     zoomWaterGisRecordToScale(waterOlLastRecordZoomCoord);
   }else{
     fitWaterGisView(points);
@@ -4180,8 +4239,17 @@ async function initGoogleMeasureMap(points, emptyEl){
     measureMapMarkers.push(marker);
     measureMapMarkerMap.set(String(r.id),marker);
   });
-  if(points.length===1){ measureMap.setCenter(bounds.getCenter()); measureMap.setZoom(17); }
-  else{ measureMap.fitBounds(bounds,{top:50,right:50,bottom:50,left:50}); }
+  const restoredSharedView=pendingSharedMapViewState && pendingSharedMapViewState.source==='watergis'
+    ? applySharedViewToGoogleMap(pendingSharedMapViewState)
+    : false;
+  if(restoredSharedView){
+    pendingSharedMapViewState=null;
+  }else if(points.length===1){
+    measureMap.setCenter(bounds.getCenter());
+    measureMap.setZoom(17);
+  }else{
+    measureMap.fitBounds(bounds,{top:50,right:50,bottom:50,left:50});
+  }
   if(focusMapRecordId){
     setTimeout(()=>{
       const targetId=String(focusMapRecordId||'');
@@ -4197,6 +4265,7 @@ async function initGoogleMeasureMap(points, emptyEl){
   setTimeout(()=>{ if(window.google&&measureMap) google.maps.event.trigger(measureMap,'resize'); },100);
 }
 function toggleMapBaseMode(){
+  pendingSharedMapViewState=captureCurrentMapViewState();
   currentMapBaseMode=currentMapBaseMode==='watergis'?'google':'watergis';
   refreshMapBaseToggleButton();
   if(document.getElementById('page-list')?.classList.contains('active')&&homeTab==='map'){

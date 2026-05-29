@@ -677,7 +677,7 @@ https://drive.google.com/file/d/你的檔案ID/view
 const DB='TrenchDB4',VER=2,ST='records';
 const PIPE_CACHE_ST='pipe_cache';
 const PIPE_CACHE_ID='PIPE_GML_EPSG3826_TO_EPSG3857_V1';
-const PIPE_CACHE_SCHEMA_VERSION=28;
+const PIPE_CACHE_SCHEMA_VERSION=29;
 const MAPS_API_KEY='AIzaSyAA25Teu7QMzQF7LhbF1MqRsux4td_vBMo';
 const APP_CONFIG_KEY='TrenchSyncConfigV1';
 const PIPE_AUTOLOAD_DISABLED_KEY='PipeGmlAutoLoadDisabledV1';
@@ -713,6 +713,7 @@ const PIPE_KIND_COLORS={
   conduction:'#F28C28',   // 導水管：橘色
   other:'#8B5A2B'         // 其他：棕色
 };
+const QGIS_PIPE_COLOR='#66CCFF'; // QGIS/FME 匯入的 PIPE 管線：淺藍色
 // 保留舊管徑色盤函式作為備援，但目前主要顏色依 pipe_kind / 管線種類決定。
 const PIPE_SIZE_COLOR_MAP={
   '100':'#58a6ff'
@@ -3148,10 +3149,8 @@ function getUserMarkerStyle(){
   });
 }
 function buildPipeInfoHtml(feature){
-  // 管線種類顯示只看 pipe_kind：
-  // pipe_kind=3 → 配水管；pipe_kind=1 → 導水管；其餘全部顯示其他管線。
-  // 不再用 pipe_type，避免 pipe_type=0 被顯示成「取水管」。
-  const kindLabel=getPipeKindLabel(feature.get('pipe_kind'));
+  // QGIS/FME 匯入的 PIPE 管線統一顯示為「非圖資系統管線」。
+  const kindLabel=feature.get('qgis_pipe')==='1' ? '非圖資系統管線' : getPipeKindLabel(feature.get('pipe_kind'));
   return `<div class="map-info">
     <div class="map-info-title">管線資訊</div>
     <div class="map-info-row"><b>管徑：</b>${esc(feature.get('pipe_size')||'—')}</div>
@@ -3217,6 +3216,8 @@ function parsePipeGmlTextToFeatures(text, options={}){
     const sourceName=String(options.sourceLabel||'').toLowerCase();
     const hasPipeCover=sourceName.includes('pipecover');
     const hasPipeHat=sourceName.includes('pipehat');
+    const rootLocalName=String(root&&root.localName||root&&root.nodeName||'').toLowerCase();
+    const isQgisFmePipe=infoEnabled && rootLocalName==='pipe';
     let overlayKind='line';
     let overlayColor='';
     let overlayRadius='';
@@ -3255,6 +3256,7 @@ function parsePipeGmlTextToFeatures(text, options={}){
       featureWidth=PIPE_AUX_SEGMENT_WIDTH;
       geometry=new ol.geom.LineString(coords);
     }else{
+      if(isQgisFmePipe){ overlayColor=QGIS_PIPE_COLOR; }
       if(!infoEnabled){ overlayKind='overlay'; overlayColor=PIPE_KIND_COLORS.other; overlayRadius='4'; }
       geometry=coords.length===1 ? new ol.geom.Point(coords[0]) : new ol.geom.LineString(coords);
     }
@@ -3266,6 +3268,8 @@ function parsePipeGmlTextToFeatures(text, options={}){
       overlay_kind:overlayKind,
       overlay_style_color:overlayColor,
       overlay_point_radius:overlayRadius,
+      qgis_pipe:isQgisFmePipe?'1':'',
+      qgis_pipe_label:isQgisFmePipe?'非圖資系統管線':'',
       aux_symbol_center:(hasPipeCover||hasPipeHat)&&coords.length===1 ? coords[0] : '',
       aux_original_angle:(hasPipeCover||hasPipeHat) ? getFirstTextByLocalName(root,'angle') : '',
       aux_angle_source:(hasPipeCover||hasPipeHat) ? 'gml-angle' : '',
@@ -3278,7 +3282,7 @@ function parsePipeGmlTextToFeatures(text, options={}){
       pipe_style_mode:hasValve?'valve-segment-red':((hasPipeCover||hasPipeHat)?'aux-point-symbol':'fixed-width-by-kind-color'),
       pipe_mtr:getFirstTextByLocalName(root,'pipe_mtr'),
       pipe_kind:pipeKind,
-      pipe_kind_label:getPipeKindLabel(pipeKind),
+      pipe_kind_label:isQgisFmePipe?'非圖資系統管線':getPipeKindLabel(pipeKind),
       pipe_type:pipeType,
       pipe_type_label:getPipeTypeLabel(pipeType),
       min_depth:getFirstTextByLocalName(root,'min_depth'),
@@ -3311,12 +3315,14 @@ function pipeFeatureToCacheItem(feature){
       pipe_style_mode:feature.get('pipe_style_mode')||'fixed-width-by-kind-color',
       pipe_mtr:feature.get('pipe_mtr')||'',
       pipe_kind:feature.get('pipe_kind')||'',
-      pipe_kind_label:feature.get('pipe_kind_label')||getPipeKindLabel(feature.get('pipe_kind')),
+      pipe_kind_label:feature.get('qgis_pipe')==='1'?'非圖資系統管線':(feature.get('pipe_kind_label')||getPipeKindLabel(feature.get('pipe_kind'))),
       pipe_type:feature.get('pipe_type')||'',
       pipe_type_label:feature.get('pipe_type_label')||getPipeTypeLabel(feature.get('pipe_type')),
       overlay_kind:feature.get('overlay_kind')||'',
       overlay_style_color:feature.get('overlay_style_color')||'',
       overlay_point_radius:feature.get('overlay_point_radius')||'',
+      qgis_pipe:feature.get('qgis_pipe')||'',
+      qgis_pipe_label:feature.get('qgis_pipe_label')||'',
       aux_symbol_center:feature.get('aux_symbol_center')||'',
       aux_original_angle:feature.get('aux_original_angle')||'',
       aux_angle_source:feature.get('aux_angle_source')||'',

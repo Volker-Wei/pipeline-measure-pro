@@ -611,7 +611,7 @@ html,body{height:100%}
         <div class="info-box" style="margin-top:10px">
           同一個 Drive 資料夾內的 GML 會自動分類：<br>
           <b>PIPE*.gml</b> = 主要管線，點擊會顯示管徑、材質、管線種類、深度。<br>
-          <b>HYDRANT*.gml、HYDRANTL*.gml、VALVE*.gml、PIPECOVER*.gml、PIPEHAT*.gml</b> = 附加圖資，只顯示，不跳資訊。
+          <b>PIPE / HYDRANT / HYDRANTL / VALVE / PIPECOVER / PIPEHAT</b> 會依 GML 內部 feature 類型自動分類，不用檔名判斷。
         </div>
         <div class="fld" style="margin-top:10px">
           <label>額外主要 GML 圖資來源（可空白；一行一個，點擊管線會顯示資訊）</label>
@@ -677,7 +677,7 @@ https://drive.google.com/file/d/你的檔案ID/view
 const DB='TrenchDB4',VER=2,ST='records';
 const PIPE_CACHE_ST='pipe_cache';
 const PIPE_CACHE_ID='PIPE_GML_EPSG3826_TO_EPSG3857_V1';
-const PIPE_CACHE_SCHEMA_VERSION=29;
+const PIPE_CACHE_SCHEMA_VERSION=31;
 const MAPS_API_KEY='AIzaSyAA25Teu7QMzQF7LhbF1MqRsux4td_vBMo';
 const APP_CONFIG_KEY='TrenchSyncConfigV1';
 const PIPE_AUTOLOAD_DISABLED_KEY='PipeGmlAutoLoadDisabledV1';
@@ -3030,6 +3030,69 @@ function findFeatureRootFromNode(node){
   }
   return node&&node.parentNode ? node.parentNode : null;
 }
+
+function featureRootHasDirectChildLocalName(root, localName){
+  if(!root || !root.children) return false;
+  const target=String(localName||'').toLowerCase();
+  for(let i=0;i<root.children.length;i++){
+    if(String(root.children[i].localName||root.children[i].nodeName||'').toLowerCase()===target) return true;
+  }
+  return false;
+}
+
+function getFeatureRootDirectChildElement(root, localName=''){
+  if(!root || !root.children) return null;
+  const target=String(localName||'').toLowerCase();
+  for(let i=0;i<root.children.length;i++){
+    const el=root.children[i];
+    const ln=String(el.localName||el.nodeName||'').toLowerCase();
+    if(!target || ln===target) return el;
+  }
+  return null;
+}
+function isFmeElement(el){
+  const ns=String(el&&el.namespaceURI||'').toLowerCase();
+  const prefix=String(el&&el.prefix||'').toLowerCase();
+  return prefix==='fme' || ns.includes('safe.com/gml/fme');
+}
+function detectGmlFeatureInfoFromText(text){
+  try{
+    const xml=new DOMParser().parseFromString(String(text||''),'application/xml');
+    if(xml.getElementsByTagName('parsererror').length) return null;
+    const fm=xml.getElementsByTagNameNS('*','featureMember')[0] || xml.getElementsByTagName('gml:featureMember')[0];
+    if(!fm || !fm.children || !fm.children.length) return null;
+    const el=fm.children[0];
+    return {
+      localName:String(el.localName||el.nodeName||'').toLowerCase(),
+      namespaceURI:String(el.namespaceURI||'').toLowerCase(),
+      prefix:String(el.prefix||'').toLowerCase()
+    };
+  }catch(e){
+    return null;
+  }
+}
+function classifyGmlRoleFromInternalData(text){
+  const info=detectGmlFeatureInfoFromText(text);
+  const type=info && info.localName ? info.localName : '';
+  if(type==='pipe') return {role:'main',type};
+  if(['hydrant','hydrantl','valve','pipecover','pipehat'].includes(type)) return {role:'overlay',type};
+
+  // 備援：不看檔名，只看 GML 內部欄位。
+  const sample=String(text||'').slice(0,1200000).toLowerCase();
+  if(/<(?:\w+:)?hydrant\b|<(?:\w+:)?hydrant_id\b|<(?:\w+:)?hyid\b/.test(sample)) return {role:'overlay',type:'hydrant'};
+  if(/<(?:\w+:)?valve\b|<(?:\w+:)?valve_id\b|<(?:\w+:)?vid\b/.test(sample)) return {role:'overlay',type:'valve'};
+  if(/<(?:\w+:)?pipecover\b/.test(sample)) return {role:'overlay',type:'pipecover'};
+  if(/<(?:\w+:)?pipehat\b/.test(sample)) return {role:'overlay',type:'pipehat'};
+  if(/<(?:\w+:)?pipe\b|<(?:\w+:)?pipe_size\b|<(?:\w+:)?pipe_kind\b/.test(sample)) return {role:'main',type:'pipe'};
+
+  return {role:'overlay',type:type||'unknown'};
+}
+
+function sourceLooksLikeQgisFmePipe(sourceName){
+  // 已停用：QGIS/FME PIPE 不再使用檔名判斷，改用 GML 內部 <fme:PIPE> 判斷。
+  return false;
+}
+
 function normalizePipeSizeValue(value){
   const raw=String(value||'').trim();
   if(!raw) return '';
@@ -3089,7 +3152,7 @@ function getPipeStyle(feature, resolution){
   const geomType=geom && geom.getType ? geom.getType() : 'LineString';
   const explicitWidth=Number(feature.get('pipe_style_width'));
   const kindValue=feature.get('pipe_kind') || feature.get('pipe_kind_label');
-  const color=feature.get('overlay_style_color') || getPipeColorByKind(kindValue);
+  const color=feature.get('qgis_pipe')==='1' ? QGIS_PIPE_COLOR : (feature.get('overlay_style_color') || getPipeColorByKind(kindValue));
   const width=Number.isFinite(explicitWidth) && explicitWidth>0 ? explicitWidth : PIPE_FIXED_LINE_WIDTH;
   if(geomType==='Point'){
     const overlayKind=String(feature.get('overlay_kind')||'');
@@ -3217,7 +3280,8 @@ function parsePipeGmlTextToFeatures(text, options={}){
     const hasPipeCover=sourceName.includes('pipecover');
     const hasPipeHat=sourceName.includes('pipehat');
     const rootLocalName=String(root&&root.localName||root&&root.nodeName||'').toLowerCase();
-    const isQgisFmePipe=infoEnabled && rootLocalName==='pipe';
+    const fmePipeElement=getFeatureRootDirectChildElement(root,'PIPE');
+    const isQgisFmePipe=infoEnabled && !hasPipeCover && !hasPipeHat && !!fmePipeElement && isFmeElement(fmePipeElement);
     let overlayKind='line';
     let overlayColor='';
     let overlayRadius='';
@@ -3310,7 +3374,7 @@ function pipeFeatureToCacheItem(feature){
       pipe_size_norm:feature.get('pipe_size_norm')||normalizePipeSizeValue(feature.get('pipe_size')),
       pipe_layer_role:feature.get('pipe_layer_role')||'main',
       pipe_info_enabled:feature.get('pipe_info_enabled')||'1',
-      pipe_style_color:getPipeColorByKind(feature.get('pipe_kind')),
+      pipe_style_color:feature.get('qgis_pipe')==='1'?QGIS_PIPE_COLOR:getPipeColorByKind(feature.get('pipe_kind')),
       pipe_style_width:feature.get('pipe_style_width')||PIPE_FIXED_LINE_WIDTH,
       pipe_style_mode:feature.get('pipe_style_mode')||'fixed-width-by-kind-color',
       pipe_mtr:feature.get('pipe_mtr')||'',
@@ -3577,18 +3641,18 @@ async function fetchPipeGmlTextsFromDriveFolder(cacheBust=false){
   for(let i=0;i<files.length;i++){
     const f=files[i];
     const label=f.name||f.id;
-    const role=classifyDriveGmlFileRole(label);
-    const infoEnabled=role==='main';
-    if(infoEnabled) mainCount++; else overlayCount++;
-
     try{
-      setPipeConfigResult(`正在下載 Drive 資料夾 GML ${i+1}/${files.length}：${label}（${infoEnabled?'主要管線':'附加圖資'}）`);
+      setPipeConfigResult(`正在下載 Drive 資料夾 GML ${i+1}/${files.length}：${label}`);
       const text=await fetchPipeGmlTextFromGoogleDrive(f.id, label, cacheBust);
+      const internal=classifyGmlRoleFromInternalData(text);
+      const finalInfoEnabled=internal.role==='main';
+      if(finalInfoEnabled) mainCount++; else overlayCount++;
       loaded.push({
         source:`drive-folder:${folderId}/${f.id}`,
         sourceLabel:`Drive資料夾/${label}`,
         text,
-        infoEnabled
+        infoEnabled:finalInfoEnabled,
+        internalType:internal.type||''
       });
     }catch(e){
       errors.push(`${label}：${shortErr(e)}`);

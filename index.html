@@ -829,6 +829,8 @@ let pendingSharedMapViewState=null; // 切換 Google 地圖 / 管線圖資時保
 let addOpenedOverMap=false; // 從丈量地圖開啟填寫頁時，改用覆蓋層，避免地圖重新初始化
 let activeGoogleInfoRecordId=''; // 目前 Google 地圖資訊泡泡對應的案件 id
 let activeGoogleInfoMarker=null; // 目前 Google 地圖資訊泡泡錨定的 marker
+let activeMapInfoRecordId=''; // 目前打開的「案件」資訊泡泡 id；用來在 Google 地圖 / 管線圖資切換時保留泡泡
+let pendingMapInfoRecordIdAfterBaseSwitch=''; // 切換底圖時暫存要重新打開的案件資訊泡泡 id
 let measureMapMarkerMap=new Map();
 let focusMapRecordId=null;
 let pendingMapToastRecordId='';
@@ -2226,7 +2228,7 @@ function focusMapRecordById(id){
     if(!f || !waterOlMap) return;
     const coord=f.getGeometry().getCoordinates();
     zoomWaterGisRecordToScale(coord);
-    showWaterGisPopup(coord, buildMapInfoHtml(f.get('record')||{}));
+    showWaterGisRecordPopupByFeature(f, coord);
     return;
   }
   if(!measureMapMarkerMap.has(id)||!measureMap){ return; }
@@ -2285,6 +2287,7 @@ function openGoogleRecordInfoAtScale(marker, html){
     measureMapInfo.open({map:measureMap,anchor:marker});
     activeGoogleInfoMarker=marker||null;
     activeGoogleInfoRecordId=marker&&marker.__recordId?String(marker.__recordId):'';
+    activeMapInfoRecordId=activeGoogleInfoRecordId;
   }
 }
 
@@ -2294,10 +2297,68 @@ function refreshActiveGoogleInfoAfterOverlaySave(rec){
   if(!id || activeGoogleInfoRecordId!==id) return;
   const marker=measureMapMarkerMap.get(id) || activeGoogleInfoMarker;
   if(!marker) return;
+  marker.__record=rec;
   measureMapInfo.setContent(buildMapInfoHtml(rec));
   measureMapInfo.open({map:measureMap,anchor:marker});
   activeGoogleInfoMarker=marker;
   activeGoogleInfoRecordId=id;
+  activeMapInfoRecordId=id;
+}
+function showGoogleRecordInfoById(recordId){
+  const id=String(recordId||'').trim();
+  if(!id || !measureMap || !measureMapInfo) return false;
+  const marker=measureMapMarkerMap.get(id);
+  if(!marker) return false;
+  const rec=marker.__record||{};
+  measureMapInfo.setContent(buildMapInfoHtml(rec));
+  measureMapInfo.open({map:measureMap,anchor:marker});
+  activeGoogleInfoMarker=marker;
+  activeGoogleInfoRecordId=id;
+  activeMapInfoRecordId=id;
+  return true;
+}
+function showWaterGisRecordPopupByFeature(feature, coord){
+  if(!feature) return false;
+  const rec=feature.get('record')||{};
+  const id=String(feature.get('recordId')||rec.id||'').trim();
+  const popupCoord=coord || (feature.getGeometry&&feature.getGeometry().getCoordinates&&feature.getGeometry().getCoordinates());
+  if(!id || !popupCoord) return false;
+  showWaterGisPopup(popupCoord, buildMapInfoHtml(rec));
+  activeMapInfoRecordId=id;
+  return true;
+}
+function showWaterGisRecordInfoById(recordId){
+  const id=String(recordId||'').trim();
+  if(!id || !waterOlMap) return false;
+  const feature=waterOlMarkerFeatureMap.get(id);
+  if(!feature) return false;
+  const coord=feature.getGeometry().getCoordinates();
+  return showWaterGisRecordPopupByFeature(feature, coord);
+}
+function showActiveRecordInfoOnCurrentBase(recordId){
+  const id=String(recordId||activeMapInfoRecordId||'').trim();
+  if(!id) return false;
+  if(currentMapBaseMode==='watergis') return showWaterGisRecordInfoById(id);
+  return showGoogleRecordInfoById(id);
+}
+function clearActiveRecordInfoBubbleState(){
+  activeMapInfoRecordId='';
+  activeGoogleInfoRecordId='';
+  activeGoogleInfoMarker=null;
+}
+function refreshActiveRecordInfoAfterOverlaySave(rec){
+  if(!rec) return;
+  const id=String(rec.id||'').trim();
+  if(!id || activeMapInfoRecordId!==id) return;
+  if(currentMapBaseMode==='watergis'){
+    const feature=waterOlMarkerFeatureMap.get(id);
+    if(feature){
+      feature.set('record', rec);
+      showWaterGisRecordInfoById(id);
+    }
+    return;
+  }
+  refreshActiveGoogleInfoAfterOverlaySave(rec);
 }
 function getWaterGisResolutionForScale(coord, scale=RECORD_MARKER_TARGET_SCALE){
   const groundResolution=getTargetGroundResolutionForScale(scale);
@@ -2390,8 +2451,7 @@ async function openMeasureForm(encodedId){
   addOpenedOverMap=!!document.getElementById('page-list')?.classList.contains('active') && homeTab==='map';
   if(measureMapInfo && !(addOpenedOverMap && currentMapBaseMode==='google')){
     measureMapInfo.close();
-    activeGoogleInfoRecordId='';
-    activeGoogleInfoMarker=null;
+    clearActiveRecordInfoBubbleState();
   }
 
   if(r.status==='pending') openAdd(r); else await editRecord();
@@ -3418,6 +3478,7 @@ function ensureWaterGisPopupOverlay(){
     closer.onclick=()=>{
       container.style.display='none';
       waterOlPopupOverlay.setPosition(undefined);
+      clearActiveRecordInfoBubbleState();
       return false;
     };
   }
@@ -4204,14 +4265,15 @@ function initWaterGisMapShell(){
   waterOlMap.on('singleclick',(evt)=>{
     let picked=null;
     waterOlMap.forEachFeatureAtPixel(evt.pixel,(feature)=>{picked=feature;return true;},{hitTolerance:7});
-    if(!picked){hideWaterGisPopup();return;}
+    if(!picked){hideWaterGisPopup();clearActiveRecordInfoBubbleState();return;}
     const geom=picked.getGeometry();
     const coord=geom instanceof ol.geom.Point ? geom.getCoordinates() : evt.coordinate;
     if(picked.get('layerType')==='record'){
       zoomWaterGisRecordToScale(coord);
-      showWaterGisPopup(coord, buildMapInfoHtml(picked.get('record')||{}));
+      showWaterGisRecordPopupByFeature(picked, coord);
     }
     else if(picked.get('layerType')==='pipe'){
+      clearActiveRecordInfoBubbleState();
       if(isPipeInfoEnabled(picked)) showWaterGisPopup(coord, buildPipeInfoHtml(picked));
       else hideWaterGisPopup();
     }
@@ -4349,8 +4411,7 @@ async function initGoogleMeasureMap(points, emptyEl){
     measureMap=new google.maps.Map(googleMapDiv,{center:points.length?{lat:+points[0].lat,lng:+points[0].lng}:{lat:23.6978,lng:120.9605},zoom:points.length?16:7,mapTypeControl:false,streetViewControl:false,fullscreenControl:true});
     measureMapInfo=new google.maps.InfoWindow();
     measureMapInfo.addListener('closeclick',()=>{
-      activeGoogleInfoRecordId='';
-      activeGoogleInfoMarker=null;
+      clearActiveRecordInfoBubbleState();
     });
   }
   clearGoogleMarkers();
@@ -4367,6 +4428,7 @@ async function initGoogleMeasureMap(points, emptyEl){
       icon:{path:google.maps.SymbolPath.CIRCLE,scale:8,fillColor:markerColor,fillOpacity:1,strokeColor:'#ffffff',strokeWeight:2}
     });
     marker.__recordId=String(r.id||'');
+    marker.__record=r;
     const html=buildMapInfoHtml(r);
     marker.addListener('click',()=>openGoogleRecordInfoAtScale(marker, html));
     measureMapMarkers.push(marker);
@@ -4399,10 +4461,19 @@ async function initGoogleMeasureMap(points, emptyEl){
 }
 function toggleMapBaseMode(){
   pendingSharedMapViewState=captureCurrentMapViewState();
+  // 切換底圖前，先記住目前打開的「案件資訊泡泡」。
+  // 注意：管線本身的 popup 沒有 Google 地圖對應物件，因此只保留案件 marker 的資訊泡泡。
+  pendingMapInfoRecordIdAfterBaseSwitch=activeMapInfoRecordId || activeGoogleInfoRecordId || '';
   currentMapBaseMode=currentMapBaseMode==='watergis'?'google':'watergis';
   refreshMapBaseToggleButton();
   if(document.getElementById('page-list')?.classList.contains('active')&&homeTab==='map'){
-    initMeasureMap().then(()=>toast(currentMapBaseMode==='watergis'?'已切換為管線圖資':'已切換為 Google 地圖'));
+    initMeasureMap().then(()=>{
+      if(pendingMapInfoRecordIdAfterBaseSwitch){
+        showActiveRecordInfoOnCurrentBase(pendingMapInfoRecordIdAfterBaseSwitch);
+        pendingMapInfoRecordIdAfterBaseSwitch='';
+      }
+      toast(currentMapBaseMode==='watergis'?'已切換為管線圖資':'已切換為 Google 地圖');
+    });
   }
 }
 async function locateMeOnMap(){
@@ -4423,6 +4494,7 @@ async function locateMeOnMap(){
       waterOlUserSource.addFeature(new ol.Feature({geometry:new ol.geom.Point(coord),layerType:'user'}));
       waterOlMap.getView().animate({center:coord,zoom:18,duration:220});
       setTimeout(lockWaterGisNorthUp,260);
+      clearActiveRecordInfoBubbleState();
       showWaterGisPopup(coord,'<div class="map-info"><div class="map-info-title">目前位置</div><div class="map-info-row">已回到你的定位點。</div></div>');
       toast('已定位到你目前的位置');
       return;
@@ -4438,6 +4510,7 @@ async function locateMeOnMap(){
     if(marker) marker.setPosition({lat,lng});
     if(measureMap){ measureMap.setCenter({lat,lng}); measureMap.setZoom(18); }
     if(measureMapInfo && marker){
+      clearActiveRecordInfoBubbleState();
       measureMapInfo.setContent('<div class="map-info"><div class="map-info-title">目前位置</div><div class="map-info-row">已回到你的定位點。</div></div>');
       measureMapInfo.open({map:measureMap,anchor:marker});
     }
@@ -4566,7 +4639,7 @@ async function saveRecord(){
     if(isAddOverlayOpenFromMap()){
       // 從丈量地圖覆蓋層儲存：只關閉填寫頁，不重新初始化地圖、不自動 fit。
       closeAddMapOverlay();
-      refreshActiveGoogleInfoAfterOverlaySave(rec);
+      refreshActiveRecordInfoAfterOverlaySave(rec);
     }else{
       await renderList();
       returnToListPage();

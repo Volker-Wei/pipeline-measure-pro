@@ -351,6 +351,21 @@ html,body{height:100%}
 .id-date-row input{width:100%;max-width:100%;min-width:0;box-sizing:border-box}
 #f-date{-webkit-appearance:none;appearance:none;width:100%;max-width:100%;min-width:0}}
 
+
+/* 從丈量地圖進入填寫測量資訊時，填寫頁只覆蓋在地圖上，不關閉、不重建底下地圖 */
+#page-add.map-overlay{
+  display:block!important;
+  position:fixed;
+  inset:0;
+  z-index:600;
+  background:var(--bg);
+  overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
+}
+body.add-overlay-open{
+  overflow:hidden;
+}
+
 </style>
 </head>
 <body>
@@ -770,9 +785,7 @@ let waterOlStatusEl=null;
 let waterOlLastRecordZoomCoord=null;
 let waterOlLastRecordZoomAt=0;
 let pendingSharedMapViewState=null; // 切換 Google 地圖 / 管線圖資時保留中心點與縮放
-let skipMapAutoFitOnce=false; // 從填寫頁返回丈量地圖時，只更新標記，不自動 fitBounds / fitWaterGisView
-let restoreMeasureMapViewOnce=false; // 從填寫頁返回丈量地圖時，單次還原進入填寫頁前的中心點與比例尺
-const MEASURE_MAP_RETURN_VIEW_KEY='TrenchMeasureMapReturnViewV1';
+let addOpenedOverMap=false; // 從丈量地圖開啟填寫頁時，改用覆蓋層，避免地圖重新初始化
 let measureMapMarkerMap=new Map();
 let focusMapRecordId=null;
 let pendingMapToastRecordId='';
@@ -1805,9 +1818,47 @@ function rememberListScroll(){
     listPageScrollY=window.scrollY||document.documentElement.scrollTop||0;
   }
 }
+function isAddOverlayOpenFromMap(){
+  return !!addOpenedOverMap && homeTab==='map' && !!document.getElementById('page-list')?.classList.contains('active');
+}
+function refreshVisibleMapSizeOnly(){
+  try{
+    if(currentMapBaseMode==='watergis' && waterOlMap){
+      waterOlMap.updateSize();
+      lockWaterGisNorthUp();
+    }else if(window.google && measureMap){
+      google.maps.event.trigger(measureMap,'resize');
+    }
+  }catch(e){}
+}
+function openAddAsMapOverlay(){
+  const listPage=document.getElementById('page-list');
+  const addPage=document.getElementById('page-add');
+  if(listPage) listPage.classList.add('active');
+  if(addPage){
+    addPage.classList.add('active','map-overlay');
+    addPage.scrollTop=0;
+  }
+  document.body.classList.add('add-overlay-open');
+  // 只刷新尺寸，不改中心點、不改 zoom，也不重新 initMeasureMap。
+  setTimeout(refreshVisibleMapSizeOnly,0);
+}
+function closeAddMapOverlay(){
+  const addPage=document.getElementById('page-add');
+  if(addPage){
+    addPage.classList.remove('active','map-overlay');
+  }
+  document.body.classList.remove('add-overlay-open');
+  addOpenedOverMap=false;
+  refreshVisibleMapSizeOnly();
+  syncHomeUi();
+}
 function returnToListPage(){
+  if(isAddOverlayOpenFromMap()){
+    closeAddMapOverlay();
+    return;
+  }
   restoreListScroll=true;
-  markReturnToMeasureMapWithoutAutoFit();
   gotoPage('page-list');
 }
 function gotoPage(id){
@@ -2265,12 +2316,17 @@ async function routeToRecordFromMap(encodedId){
   window.location.href=webUrl;
 }
 async function openMeasureForm(encodedId){
-  prepareMeasureMapReturnView();
   const id=decodeURIComponent(encodedId);
-  const r=await getRecLocal(id); if(!r) return;
+  const r=await getRecLocal(id);
+  if(!r) return;
+
   curDetailId=id;
   if(measureMapInfo) measureMapInfo.close();
   rememberListScroll();
+
+  // 從丈量地圖進入填寫頁時，不切走 page-list，讓地圖 instance 和目前視角保留在底下。
+  addOpenedOverMap=!!document.getElementById('page-list')?.classList.contains('active') && homeTab==='map';
+
   if(r.status==='pending') openAdd(r); else await editRecord();
 }
 
@@ -2369,63 +2425,6 @@ function applySharedViewToWaterGisMap(state){
     lockWaterGisNorthUp();
     return true;
   }catch(e){ return false; }
-}
-
-function isMeasureMapPageActive(){
-  return document.getElementById('page-list')?.classList.contains('active') && homeTab==='map';
-}
-function saveMeasureMapReturnView(){
-  const state=captureCurrentMapViewState();
-  if(!state || !state.center) return null;
-  const payload={...state,savedAt:Date.now()};
-  try{ localStorage.setItem(MEASURE_MAP_RETURN_VIEW_KEY, JSON.stringify(payload)); }catch(e){}
-  return payload;
-}
-function loadMeasureMapReturnView(){
-  try{
-    const raw=localStorage.getItem(MEASURE_MAP_RETURN_VIEW_KEY);
-    if(!raw) return null;
-    const state=JSON.parse(raw);
-    if(!state || !state.center) return null;
-    if(!Number.isFinite(Number(state.center.lat)) || !Number.isFinite(Number(state.center.lng))) return null;
-    return state;
-  }catch(e){ return null; }
-}
-function clearMeasureMapReturnView(){
-  try{ localStorage.removeItem(MEASURE_MAP_RETURN_VIEW_KEY); }catch(e){}
-}
-function prepareMeasureMapReturnView(){
-  if(isMeasureMapPageActive()) saveMeasureMapReturnView();
-}
-function markReturnToMeasureMapWithoutAutoFit(){
-  if(homeTab==='map'){
-    skipMapAutoFitOnce=true;
-    restoreMeasureMapViewOnce=true;
-  }
-}
-function applyMeasureMapReturnViewIfNeeded(){
-  if(!restoreMeasureMapViewOnce || !isMeasureMapPageActive()) return false;
-  const state=loadMeasureMapReturnView();
-  if(!state){
-    restoreMeasureMapViewOnce=false;
-    return false;
-  }
-  const ok=currentMapBaseMode==='watergis'
-    ? applySharedViewToWaterGisMap(state)
-    : applySharedViewToGoogleMap(state);
-  if(ok){
-    restoreMeasureMapViewOnce=false;
-    skipMapAutoFitOnce=false;
-    clearMeasureMapReturnView();
-  }
-  return ok;
-}
-function consumeSkipMapAutoFitOnce(){
-  if(skipMapAutoFitOnce){
-    skipMapAutoFitOnce=false;
-    return true;
-  }
-  return false;
 }
 
 function setActiveMapEngine(mode){
@@ -4225,21 +4224,12 @@ async function initWaterGisMeasureMap(points, emptyEl){
   try{ waterOlMap.updateSize(); }catch(e){}
   setTimeout(()=>{ try{ if(waterOlMap) waterOlMap.updateSize(); }catch(e){} },80);
   const gmlCount=await loadPipeGmlLayer();
-  if(!isMeasureMapPageActive()){
-    updateMapSummaryGmlCount();
-    return;
-  }
   const clickedDuringInit=waterOlLastRecordZoomCoord && waterOlLastRecordZoomAt>=initStartedAt;
-  const restoredReturnView=applyMeasureMapReturnViewIfNeeded();
-  const restoredSharedView=!restoredReturnView && pendingSharedMapViewState && pendingSharedMapViewState.source==='google'
+  const restoredSharedView=pendingSharedMapViewState && pendingSharedMapViewState.source==='google'
     ? applySharedViewToWaterGisMap(pendingSharedMapViewState)
     : false;
-  if(restoredReturnView){
-    // 從填寫頁返回：已還原進入填寫頁前的中心點與比例尺。
-  }else if(restoredSharedView){
+  if(restoredSharedView){
     pendingSharedMapViewState=null;
-  }else if(consumeSkipMapAutoFitOnce()){
-    // 從填寫頁返回但沒有可還原視角時，只更新圖層/marker，不自動縮放。
   }else if(clickedDuringInit){
     zoomWaterGisRecordToScale(waterOlLastRecordZoomCoord);
   }else{
@@ -4310,17 +4300,11 @@ async function initGoogleMeasureMap(points, emptyEl){
     measureMapMarkers.push(marker);
     measureMapMarkerMap.set(String(r.id),marker);
   });
-  if(!isMeasureMapPageActive()) return;
-  const restoredReturnView=applyMeasureMapReturnViewIfNeeded();
-  const restoredSharedView=!restoredReturnView && pendingSharedMapViewState && pendingSharedMapViewState.source==='watergis'
+  const restoredSharedView=pendingSharedMapViewState && pendingSharedMapViewState.source==='watergis'
     ? applySharedViewToGoogleMap(pendingSharedMapViewState)
     : false;
-  if(restoredReturnView){
-    // 從填寫頁返回：已還原進入填寫頁前的中心點與比例尺。
-  }else if(restoredSharedView){
+  if(restoredSharedView){
     pendingSharedMapViewState=null;
-  }else if(consumeSkipMapAutoFitOnce()){
-    // 從填寫頁返回但沒有可還原視角時，只更新 marker，不自動縮放。
   }else if(points.length===1){
     measureMap.setCenter(bounds.getCenter());
     measureMap.setZoom(17);
@@ -4452,7 +4436,11 @@ function openAdd(prefill=null){
     if(r.id) document.getElementById('add-del-btn').style.display='flex';
   }
   renderPhotoGrid();
-  gotoPage('page-add');
+  if(addOpenedOverMap && homeTab==='map'){
+    openAddAsMapOverlay();
+  }else{
+    gotoPage('page-add');
+  }
 }
 async function editRecord(){
   const r=await getRecLocal(curDetailId); if(!r) return;
@@ -4503,8 +4491,13 @@ async function saveRecord(){
     refreshMeasureCacheButton();
     await putRecLocal(rec);
 
-    await renderList();
-    returnToListPage();
+    if(isAddOverlayOpenFromMap()){
+      // 從丈量地圖覆蓋層儲存：只關閉填寫頁，不重新初始化地圖、不自動 fit。
+      closeAddMapOverlay();
+    }else{
+      await renderList();
+      returnToListPage();
+    }
     renderSyncUi();
     toast('已儲存到本機，請手動按「同步」送出資料與照片');
   }catch(e){

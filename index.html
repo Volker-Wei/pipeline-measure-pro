@@ -770,6 +770,8 @@ let waterOlStatusEl=null;
 let waterOlLastRecordZoomCoord=null;
 let waterOlLastRecordZoomAt=0;
 let pendingSharedMapViewState=null; // 切換 Google 地圖 / 管線圖資時保留中心點與縮放
+const MEASURE_MAP_RETURN_VIEW_KEY='TrenchMeasureMapReturnViewStateV1';
+let restoreMeasureMapViewOnNextInit=false; // 從填寫頁返回丈量地圖時，強制還原進入前的視角
 let measureMapMarkerMap=new Map();
 let focusMapRecordId=null;
 let pendingMapToastRecordId='';
@@ -1803,6 +1805,10 @@ function rememberListScroll(){
   }
 }
 function returnToListPage(){
+  // 如果是從「填寫丈量資料」返回，先把進入表單前保存的地圖視角重新載回。
+  if(document.getElementById('page-add')?.classList.contains('active')){
+    prepareMeasureMapViewRestoreFromSavedState();
+  }
   restoreListScroll=true;
   gotoPage('page-list');
 }
@@ -2371,50 +2377,106 @@ function applySharedViewToWaterGisMap(state){
 }
 
 // 從丈量地圖進入填寫頁前，記住目前地圖中心點與比例尺。
-// 這樣點「儲存丈量紀錄」或左上角返回後，地圖不會再回到預設大小。
+// 使用 localStorage + 記憶體雙保險，避免返回時地圖重新初始化後視角被 fitBounds / fitWaterGisView 覆蓋。
+function saveMeasureMapReturnViewState(state){
+  try{
+    if(!state || !state.center) return false;
+    const normalized={
+      center:{lat:Number(state.center.lat),lng:Number(state.center.lng)},
+      zoom:Number(state.zoom),
+      source:state.source || currentMapBaseMode,
+      baseMode:state.baseMode || currentMapBaseMode,
+      savedAt:Date.now()
+    };
+    if(!Number.isFinite(normalized.center.lat) || !Number.isFinite(normalized.center.lng)) return false;
+    if(!Number.isFinite(normalized.zoom)) delete normalized.zoom;
+    pendingSharedMapViewState=normalized;
+    restoreMeasureMapViewOnNextInit=true;
+    localStorage.setItem(MEASURE_MAP_RETURN_VIEW_KEY, JSON.stringify(normalized));
+    return true;
+  }catch(e){ return false; }
+}
+function loadMeasureMapReturnViewState(){
+  try{
+    if(pendingSharedMapViewState && pendingSharedMapViewState.center) return pendingSharedMapViewState;
+    const raw=localStorage.getItem(MEASURE_MAP_RETURN_VIEW_KEY);
+    if(!raw) return null;
+    const state=JSON.parse(raw);
+    if(!state || !state.center) return null;
+    const lat=Number(state.center.lat), lng=Number(state.center.lng);
+    if(!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return {
+      center:{lat,lng},
+      zoom:Number.isFinite(Number(state.zoom))?Number(state.zoom):undefined,
+      source:state.source || state.baseMode || currentMapBaseMode,
+      baseMode:state.baseMode || state.source || currentMapBaseMode,
+      savedAt:Number(state.savedAt)||0
+    };
+  }catch(e){ return null; }
+}
+function clearMeasureMapReturnViewState(){
+  pendingSharedMapViewState=null;
+  restoreMeasureMapViewOnNextInit=false;
+  try{ localStorage.removeItem(MEASURE_MAP_RETURN_VIEW_KEY); }catch(e){}
+}
 function rememberCurrentMeasureMapView(){
   try{
-    if(document.getElementById('page-list')?.classList.contains('active') && homeTab==='map'){
-      const state=captureCurrentMapViewState();
-      if(state) pendingSharedMapViewState=state;
+    const isOnMap=document.getElementById('page-list')?.classList.contains('active') && homeTab==='map';
+    if(!isOnMap) return false;
+    const state=captureCurrentMapViewState();
+    if(!state) return false;
+    state.baseMode=currentMapBaseMode;
+    return saveMeasureMapReturnViewState(state);
+  }catch(e){ return false; }
+}
+function prepareMeasureMapViewRestoreFromSavedState(){
+  try{
+    const state=loadMeasureMapReturnViewState();
+    if(!state) return false;
+    pendingSharedMapViewState=state;
+    restoreMeasureMapViewOnNextInit=true;
+    if(state.baseMode && (state.baseMode==='google' || state.baseMode==='watergis')){
+      currentMapBaseMode=state.baseMode;
+      refreshMapBaseToggleButton();
     }
-  }catch(e){}
+    return true;
+  }catch(e){ return false; }
 }
 
 // 返回丈量地圖時，優先還原剛才的中心點與比例尺，不重新 fitBounds / fitWaterGisView。
 function restorePendingMeasureMapView(){
-  if(!pendingSharedMapViewState) return false;
+  const state=pendingSharedMapViewState || (restoreMeasureMapViewOnNextInit ? loadMeasureMapReturnViewState() : null);
+  if(!state || !state.center) return false;
 
-  const state=pendingSharedMapViewState;
   let ok=false;
 
   if(currentMapBaseMode==='watergis'){
     ok=applySharedViewToWaterGisMap(state);
 
-    // 手機 / OpenLayers 有時要等容器重新顯示後 updateSize，補一次避免中心點跑掉。
+    // 手機 / OpenLayers 有時要等容器重新顯示後 updateSize，補幾次避免中心點跑掉。
     if(ok){
-      setTimeout(()=>{
+      [80,180,350].forEach(ms=>setTimeout(()=>{
         try{
           if(waterOlMap) waterOlMap.updateSize();
           applySharedViewToWaterGisMap(state);
         }catch(e){}
-      },120);
+      },ms));
     }
   }else{
     ok=applySharedViewToGoogleMap(state);
 
-    // Google Map 回到顯示狀態後補一次 resize，避免手機返回時比例尺或中心點被重算。
+    // Google Map 回到顯示狀態後補幾次 resize + recenter，避免手機返回時比例尺或中心點被重算。
     if(ok){
-      setTimeout(()=>{
+      [80,180,350].forEach(ms=>setTimeout(()=>{
         try{
           if(window.google && measureMap) google.maps.event.trigger(measureMap,'resize');
           applySharedViewToGoogleMap(state);
         }catch(e){}
-      },120);
+      },ms));
     }
   }
 
-  if(ok) pendingSharedMapViewState=null;
+  if(ok) clearMeasureMapReturnViewState();
   return ok;
 }
 

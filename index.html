@@ -2263,6 +2263,10 @@ async function routeToRecordFromMap(encodedId){
 async function openMeasureForm(encodedId){
   const id=decodeURIComponent(encodedId);
   const r=await getRecLocal(id); if(!r) return;
+
+  // 從「丈量地圖」點進「填寫測量資訊」前，先記住目前地圖中心點與比例尺
+  rememberCurrentMeasureMapView();
+
   curDetailId=id;
   if(measureMapInfo) measureMapInfo.close();
   rememberListScroll();
@@ -2364,6 +2368,54 @@ function applySharedViewToWaterGisMap(state){
     lockWaterGisNorthUp();
     return true;
   }catch(e){ return false; }
+}
+
+// 從丈量地圖進入填寫頁前，記住目前地圖中心點與比例尺。
+// 這樣點「儲存丈量紀錄」或左上角返回後，地圖不會再回到預設大小。
+function rememberCurrentMeasureMapView(){
+  try{
+    if(document.getElementById('page-list')?.classList.contains('active') && homeTab==='map'){
+      const state=captureCurrentMapViewState();
+      if(state) pendingSharedMapViewState=state;
+    }
+  }catch(e){}
+}
+
+// 返回丈量地圖時，優先還原剛才的中心點與比例尺，不重新 fitBounds / fitWaterGisView。
+function restorePendingMeasureMapView(){
+  if(!pendingSharedMapViewState) return false;
+
+  const state=pendingSharedMapViewState;
+  let ok=false;
+
+  if(currentMapBaseMode==='watergis'){
+    ok=applySharedViewToWaterGisMap(state);
+
+    // 手機 / OpenLayers 有時要等容器重新顯示後 updateSize，補一次避免中心點跑掉。
+    if(ok){
+      setTimeout(()=>{
+        try{
+          if(waterOlMap) waterOlMap.updateSize();
+          applySharedViewToWaterGisMap(state);
+        }catch(e){}
+      },120);
+    }
+  }else{
+    ok=applySharedViewToGoogleMap(state);
+
+    // Google Map 回到顯示狀態後補一次 resize，避免手機返回時比例尺或中心點被重算。
+    if(ok){
+      setTimeout(()=>{
+        try{
+          if(window.google && measureMap) google.maps.event.trigger(measureMap,'resize');
+          applySharedViewToGoogleMap(state);
+        }catch(e){}
+      },120);
+    }
+  }
+
+  if(ok) pendingSharedMapViewState=null;
+  return ok;
 }
 
 function setActiveMapEngine(mode){
@@ -4164,11 +4216,9 @@ async function initWaterGisMeasureMap(points, emptyEl){
   setTimeout(()=>{ try{ if(waterOlMap) waterOlMap.updateSize(); }catch(e){} },80);
   const gmlCount=await loadPipeGmlLayer();
   const clickedDuringInit=waterOlLastRecordZoomCoord && waterOlLastRecordZoomAt>=initStartedAt;
-  const restoredSharedView=pendingSharedMapViewState && pendingSharedMapViewState.source==='google'
-    ? applySharedViewToWaterGisMap(pendingSharedMapViewState)
-    : false;
+  const restoredSharedView=restorePendingMeasureMapView();
   if(restoredSharedView){
-    pendingSharedMapViewState=null;
+    // 已還原剛才的比例尺與位置
   }else if(clickedDuringInit){
     zoomWaterGisRecordToScale(waterOlLastRecordZoomCoord);
   }else{
@@ -4239,11 +4289,9 @@ async function initGoogleMeasureMap(points, emptyEl){
     measureMapMarkers.push(marker);
     measureMapMarkerMap.set(String(r.id),marker);
   });
-  const restoredSharedView=pendingSharedMapViewState && pendingSharedMapViewState.source==='watergis'
-    ? applySharedViewToGoogleMap(pendingSharedMapViewState)
-    : false;
+  const restoredSharedView=restorePendingMeasureMapView();
   if(restoredSharedView){
-    pendingSharedMapViewState=null;
+    // 已還原剛才的比例尺與位置
   }else if(points.length===1){
     measureMap.setCenter(bounds.getCenter());
     measureMap.setZoom(17);

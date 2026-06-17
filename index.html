@@ -772,6 +772,9 @@ let waterOlLastRecordZoomAt=0;
 let pendingSharedMapViewState=null; // 切換 Google 地圖 / 管線圖資時保留中心點與縮放
 const MEASURE_MAP_RETURN_VIEW_KEY='TrenchMeasureMapReturnViewStateV1';
 let restoreMeasureMapViewOnNextInit=false; // 從填寫頁返回丈量地圖時，強制還原進入前的視角
+let measureMapViewRestoreLockId=0;
+let measureMapViewRestoreLockState=null;
+let measureMapViewRestoreLockUntil=0;
 let measureMapMarkerMap=new Map();
 let focusMapRecordId=null;
 let pendingMapToastRecordId='';
@@ -2419,10 +2422,12 @@ function clearMeasureMapReturnViewState(){
   restoreMeasureMapViewOnNextInit=false;
   try{ localStorage.removeItem(MEASURE_MAP_RETURN_VIEW_KEY); }catch(e){}
 }
+function isMeasureMapPageVisible(){
+  return document.getElementById('page-list')?.classList.contains('active') && homeTab==='map';
+}
 function rememberCurrentMeasureMapView(){
   try{
-    const isOnMap=document.getElementById('page-list')?.classList.contains('active') && homeTab==='map';
-    if(!isOnMap) return false;
+    if(!isMeasureMapPageVisible()) return false;
     const state=captureCurrentMapViewState();
     if(!state) return false;
     state.baseMode=currentMapBaseMode;
@@ -2442,42 +2447,64 @@ function prepareMeasureMapViewRestoreFromSavedState(){
     return true;
   }catch(e){ return false; }
 }
+function applyMeasureMapViewStateOnce(state){
+  if(!state || !state.center) return false;
+  if(state.baseMode && (state.baseMode==='google' || state.baseMode==='watergis')){
+    currentMapBaseMode=state.baseMode;
+    refreshMapBaseToggleButton();
+  }
+  if(currentMapBaseMode==='watergis'){
+    if(waterOlMap){
+      try{ waterOlMap.updateSize(); }catch(e){}
+    }
+    return applySharedViewToWaterGisMap(state);
+  }
+  if(window.google && measureMap){
+    try{ google.maps.event.trigger(measureMap,'resize'); }catch(e){}
+  }
+  return applySharedViewToGoogleMap(state);
+}
+function scheduleMeasureMapViewRestoreLock(state){
+  if(!state || !state.center) return false;
+  const lockId=++measureMapViewRestoreLockId;
+  measureMapViewRestoreLockState=state;
+  measureMapViewRestoreLockUntil=Date.now()+6500;
+
+  // 返回地圖後，Google resize、OpenLayers updateSize、GML 載入、popup auto-pan 都可能晚一步覆蓋視角。
+  // 因此短時間內重複還原幾次，確保最後停在進入表單前的位置與比例尺。
+  const delays=[0,60,140,260,450,750,1100,1600,2300,3200,4600,6200];
+  delays.forEach(ms=>setTimeout(()=>{
+    if(lockId!==measureMapViewRestoreLockId) return;
+    if(!isMeasureMapPageVisible()) return;
+    applyMeasureMapViewStateOnce(state);
+  },ms));
+
+  setTimeout(()=>{
+    if(lockId!==measureMapViewRestoreLockId) return;
+    measureMapViewRestoreLockState=null;
+    measureMapViewRestoreLockUntil=0;
+    clearMeasureMapReturnViewState();
+  },6800);
+  return true;
+}
+function reapplyMeasureMapViewRestoreLock(){
+  if(!measureMapViewRestoreLockState || Date.now()>measureMapViewRestoreLockUntil) return false;
+  if(!isMeasureMapPageVisible()) return false;
+  return applyMeasureMapViewStateOnce(measureMapViewRestoreLockState);
+}
 
 // 返回丈量地圖時，優先還原剛才的中心點與比例尺，不重新 fitBounds / fitWaterGisView。
 function restorePendingMeasureMapView(){
   const state=pendingSharedMapViewState || (restoreMeasureMapViewOnNextInit ? loadMeasureMapReturnViewState() : null);
   if(!state || !state.center) return false;
 
-  let ok=false;
+  // 很重要：如果使用者已經進入「填寫丈量資料」頁，但先前的地圖初始化流程還在背景繼續，
+  // 這時不能清掉保存的視角，也不能讓背景 init 重新 fitBounds；直接回傳 true，等真正回到地圖頁再還原。
+  if(!isMeasureMapPageVisible()) return true;
 
-  if(currentMapBaseMode==='watergis'){
-    ok=applySharedViewToWaterGisMap(state);
-
-    // 手機 / OpenLayers 有時要等容器重新顯示後 updateSize，補幾次避免中心點跑掉。
-    if(ok){
-      [80,180,350].forEach(ms=>setTimeout(()=>{
-        try{
-          if(waterOlMap) waterOlMap.updateSize();
-          applySharedViewToWaterGisMap(state);
-        }catch(e){}
-      },ms));
-    }
-  }else{
-    ok=applySharedViewToGoogleMap(state);
-
-    // Google Map 回到顯示狀態後補幾次 resize + recenter，避免手機返回時比例尺或中心點被重算。
-    if(ok){
-      [80,180,350].forEach(ms=>setTimeout(()=>{
-        try{
-          if(window.google && measureMap) google.maps.event.trigger(measureMap,'resize');
-          applySharedViewToGoogleMap(state);
-        }catch(e){}
-      },ms));
-    }
-  }
-
-  if(ok) clearMeasureMapReturnViewState();
-  return ok;
+  applyMeasureMapViewStateOnce(state);
+  scheduleMeasureMapViewRestoreLock(state);
+  return true;
 }
 
 function setActiveMapEngine(mode){
@@ -2489,11 +2516,13 @@ function setActiveMapEngine(mode){
     setTimeout(()=>{
       if(waterOlMap) waterOlMap.updateSize();
       if(pendingSharedMapViewState && pendingSharedMapViewState.source==='google') applySharedViewToWaterGisMap(pendingSharedMapViewState);
+      reapplyMeasureMapViewRestoreLock();
     },80);
   }else{
     setTimeout(()=>{
       if(window.google&&measureMap) google.maps.event.trigger(measureMap,'resize');
       if(pendingSharedMapViewState && pendingSharedMapViewState.source==='watergis') applySharedViewToGoogleMap(pendingSharedMapViewState);
+      reapplyMeasureMapViewRestoreLock();
     },80);
   }
 }
@@ -4287,6 +4316,7 @@ async function initWaterGisMeasureMap(points, emptyEl){
     fitWaterGisView(points);
   }
   updateMapSummaryGmlCount();
+  reapplyMeasureMapViewRestoreLock();
   if(!points.length && !gmlCount && emptyEl) emptyEl.style.display='block';
   if(focusMapRecordId){
     setTimeout(()=>{
@@ -4372,7 +4402,10 @@ async function initGoogleMeasureMap(points, emptyEl){
       pendingMapToastRecordId='';
     },160);
   }
-  setTimeout(()=>{ if(window.google&&measureMap) google.maps.event.trigger(measureMap,'resize'); },100);
+  setTimeout(()=>{
+    if(window.google&&measureMap) google.maps.event.trigger(measureMap,'resize');
+    reapplyMeasureMapViewRestoreLock();
+  },100);
 }
 function toggleMapBaseMode(){
   pendingSharedMapViewState=captureCurrentMapViewState();

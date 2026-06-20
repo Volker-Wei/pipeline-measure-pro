@@ -827,8 +827,10 @@ let waterOlLastRecordZoomCoord=null;
 let waterOlLastRecordZoomAt=0;
 let pendingSharedMapViewState=null; // 切換 Google 地圖 / 管線圖資時保留中心點與縮放
 let addOpenedOverMap=false; // 從丈量地圖開啟填寫頁時，改用覆蓋層，避免地圖重新初始化
+let activeMapRecordPopupId=''; // 目前丈量地圖案件資訊泡泡對應的案件 id，Google / 管線圖資切換時共用
 let activeGoogleInfoRecordId=''; // 目前 Google 地圖資訊泡泡對應的案件 id
 let activeGoogleInfoMarker=null; // 目前 Google 地圖資訊泡泡錨定的 marker
+let activeWaterGisInfoRecordId=''; // 目前管線圖資案件資訊泡泡對應的案件 id
 let measureMapMarkerMap=new Map();
 let focusMapRecordId=null;
 let pendingMapToastRecordId='';
@@ -1963,6 +1965,7 @@ function switchHomeTab(tab){
   document.getElementById('home-view-list').classList.toggle('active',isList);
   document.getElementById('home-view-map').classList.toggle('active',!isList);
   if(isList){
+    if(prevTab==='map') clearAllMapRecordPopups();
     renderList();
     const shouldRestore=restoreListScroll || prevTab==='map';
     const targetY=shouldRestore?listPageScrollY:0;
@@ -2224,9 +2227,7 @@ function focusMapRecordById(id){
   if(currentMapBaseMode==='watergis'){
     const f=waterOlMarkerFeatureMap.get(String(id));
     if(!f || !waterOlMap) return;
-    const coord=f.getGeometry().getCoordinates();
-    zoomWaterGisRecordToScale(coord);
-    showWaterGisPopup(coord, buildMapInfoHtml(f.get('record')||{}));
+    showWaterGisRecordPopupFeature(f, true);
     return;
   }
   if(!measureMapMarkerMap.has(id)||!measureMap){ return; }
@@ -2278,26 +2279,80 @@ function zoomGoogleRecordToScale(marker){
   measureMap.setCenter(pos);
   measureMap.setZoom(getGoogleZoomForScale(lat));
 }
-function openGoogleRecordInfoAtScale(marker, html){
-  zoomGoogleRecordToScale(marker);
-  if(measureMapInfo){
-    measureMapInfo.setContent(html);
-    measureMapInfo.open({map:measureMap,anchor:marker});
-    activeGoogleInfoMarker=marker||null;
-    activeGoogleInfoRecordId=marker&&marker.__recordId?String(marker.__recordId):'';
-  }
+function getActiveMapRecordPopupId(){
+  return String(activeMapRecordPopupId || activeGoogleInfoRecordId || activeWaterGisInfoRecordId || '').trim();
 }
-
+function setActiveMapRecordPopupId(id){
+  activeMapRecordPopupId=String(id||'').trim();
+}
+function clearActiveMapRecordPopupId(){
+  activeMapRecordPopupId='';
+  activeGoogleInfoRecordId='';
+  activeGoogleInfoMarker=null;
+  activeWaterGisInfoRecordId='';
+}
+function closeGoogleRecordInfo(clearState=true){
+  if(measureMapInfo){
+    try{ measureMapInfo.close(); }catch(e){}
+  }
+  activeGoogleInfoRecordId='';
+  activeGoogleInfoMarker=null;
+  if(clearState) activeMapRecordPopupId='';
+}
+function hideWaterGisPopup(clearState=true){
+  const container=document.getElementById('watergis-popup');
+  if(container) container.style.display='none';
+  if(waterOlPopupOverlay) waterOlPopupOverlay.setPosition(undefined);
+  activeWaterGisInfoRecordId='';
+  if(clearState) activeMapRecordPopupId='';
+}
+function clearAllMapRecordPopups(){
+  closeGoogleRecordInfo(false);
+  hideWaterGisPopup(false);
+  clearActiveMapRecordPopupId();
+}
+function openGoogleRecordInfo(marker, html, zoomToRecord=false){
+  if(!measureMap || !measureMapInfo || !marker) return false;
+  if(zoomToRecord) zoomGoogleRecordToScale(marker);
+  hideWaterGisPopup(false);
+  measureMapInfo.setContent(html);
+  measureMapInfo.open({map:measureMap,anchor:marker});
+  activeGoogleInfoMarker=marker||null;
+  activeGoogleInfoRecordId=marker&&marker.__recordId?String(marker.__recordId):'';
+  activeWaterGisInfoRecordId='';
+  setActiveMapRecordPopupId(activeGoogleInfoRecordId);
+  return !!activeGoogleInfoRecordId;
+}
+function openGoogleRecordInfoAtScale(marker, html){
+  return openGoogleRecordInfo(marker, html, true);
+}
+function reopenGoogleRecordInfoById(id){
+  const key=String(id||'');
+  if(!key || !measureMapInfo) return false;
+  const marker=measureMapMarkerMap.get(key);
+  if(!marker) return false;
+  const rec=marker.__record || {id:key};
+  return openGoogleRecordInfo(marker, buildMapInfoHtml(rec), false);
+}
 function refreshActiveGoogleInfoAfterOverlaySave(rec){
   if(!rec || currentMapBaseMode!=='google' || !measureMap || !measureMapInfo) return;
   const id=String(rec.id||'');
-  if(!id || activeGoogleInfoRecordId!==id) return;
+  if(!id || getActiveMapRecordPopupId()!==id) return;
   const marker=measureMapMarkerMap.get(id) || activeGoogleInfoMarker;
   if(!marker) return;
-  measureMapInfo.setContent(buildMapInfoHtml(rec));
-  measureMapInfo.open({map:measureMap,anchor:marker});
-  activeGoogleInfoMarker=marker;
-  activeGoogleInfoRecordId=id;
+  marker.__record=rec;
+  openGoogleRecordInfo(marker, buildMapInfoHtml(rec), false);
+}
+function restoreActiveMapRecordPopupAfterBaseSwitch(recordId){
+  const id=String(recordId||getActiveMapRecordPopupId()||'').trim();
+  if(!id) return false;
+  setActiveMapRecordPopupId(id);
+  if(currentMapBaseMode==='watergis'){
+    closeGoogleRecordInfo(false);
+    return showWaterGisRecordPopupById(id, false);
+  }
+  hideWaterGisPopup(false);
+  return reopenGoogleRecordInfoById(id);
 }
 
 function refreshMapSummaryAfterOverlaySave(){
@@ -2337,10 +2392,8 @@ function refreshMapMarkerAfterOverlaySave(rec){
         measureMapMarkerMap.delete(id);
         measureMapMarkers=measureMapMarkers.filter(m=>m!==marker);
       }
-      if(activeGoogleInfoRecordId===id && measureMapInfo){
-        measureMapInfo.close();
-        activeGoogleInfoRecordId='';
-        activeGoogleInfoMarker=null;
+      if(getActiveMapRecordPopupId()===id){
+        closeGoogleRecordInfo(true);
       }
       return;
     }
@@ -2369,8 +2422,9 @@ function refreshMapMarkerAfterOverlaySave(rec){
     }
 
     marker.__recordId=id;
+    marker.__record=rec;
     google.maps.event.clearListeners(marker,'click');
-    marker.addListener('click',()=>openGoogleRecordInfoAtScale(marker, html));
+    marker.addListener('click',()=>openGoogleRecordInfoAtScale(marker, buildMapInfoHtml(marker.__record||rec)));
     return;
   }
 
@@ -2385,6 +2439,7 @@ function refreshMapMarkerAfterOverlaySave(rec){
         waterOlMarkerFeatureMap.delete(id);
         if(waterOlMarkerSource.changed) waterOlMarkerSource.changed();
       }
+      if(getActiveMapRecordPopupId()===id) hideWaterGisPopup(true);
       return;
     }
 
@@ -2406,6 +2461,7 @@ function refreshMapMarkerAfterOverlaySave(rec){
       feature.changed();
     }
     if(waterOlMarkerSource.changed) waterOlMarkerSource.changed();
+    if(getActiveMapRecordPopupId()===id) showWaterGisRecordPopupFeature(feature, false);
   }
 }
 function getWaterGisResolutionForScale(coord, scale=RECORD_MARKER_TARGET_SCALE){
@@ -3525,8 +3581,7 @@ function ensureWaterGisPopupOverlay(){
   if(closer && !closer.__binded){
     closer.__binded=true;
     closer.onclick=()=>{
-      container.style.display='none';
-      waterOlPopupOverlay.setPosition(undefined);
+      hideWaterGisPopup(true);
       return false;
     };
   }
@@ -3541,10 +3596,36 @@ function showWaterGisPopup(coord, html){
   container.style.display='block';
   overlay.setPosition(coord);
 }
-function hideWaterGisPopup(){
+function hideWaterGisPopup(clearState=true){
   const container=document.getElementById('watergis-popup');
   if(container) container.style.display='none';
   if(waterOlPopupOverlay) waterOlPopupOverlay.setPosition(undefined);
+  activeWaterGisInfoRecordId='';
+  if(clearState) activeMapRecordPopupId='';
+}
+function showWaterGisRecordPopupFeature(feature, zoomToRecord=false){
+  if(!feature) return false;
+  const geom=feature.getGeometry && feature.getGeometry();
+  if(!geom) return false;
+  const coord=geom instanceof ol.geom.Point ? geom.getCoordinates() : null;
+  if(!coord) return false;
+  const rec=feature.get('record')||{};
+  const id=String(feature.get('recordId') || rec.id || '').trim();
+  if(!id) return false;
+  if(zoomToRecord) zoomWaterGisRecordToScale(coord);
+  closeGoogleRecordInfo(false);
+  showWaterGisPopup(coord, buildMapInfoHtml(rec));
+  activeWaterGisInfoRecordId=id;
+  activeGoogleInfoRecordId='';
+  activeGoogleInfoMarker=null;
+  setActiveMapRecordPopupId(id);
+  return true;
+}
+function showWaterGisRecordPopupById(id, zoomToRecord=false){
+  const key=String(id||'').trim();
+  if(!key || !waterOlMarkerFeatureMap) return false;
+  const feature=waterOlMarkerFeatureMap.get(key);
+  return showWaterGisRecordPopupFeature(feature, zoomToRecord);
 }
 function parsePipeGmlTextToFeatures(text, options={}){
   const xml=new DOMParser().parseFromString(String(text||''),'application/xml');
@@ -4313,16 +4394,16 @@ function initWaterGisMapShell(){
   waterOlMap.on('singleclick',(evt)=>{
     let picked=null;
     waterOlMap.forEachFeatureAtPixel(evt.pixel,(feature)=>{picked=feature;return true;},{hitTolerance:7});
-    if(!picked){hideWaterGisPopup();return;}
+    if(!picked){hideWaterGisPopup(true);return;}
     const geom=picked.getGeometry();
     const coord=geom instanceof ol.geom.Point ? geom.getCoordinates() : evt.coordinate;
     if(picked.get('layerType')==='record'){
-      zoomWaterGisRecordToScale(coord);
-      showWaterGisPopup(coord, buildMapInfoHtml(picked.get('record')||{}));
+      showWaterGisRecordPopupFeature(picked, true);
     }
     else if(picked.get('layerType')==='pipe'){
+      clearActiveMapRecordPopupId();
       if(isPipeInfoEnabled(picked)) showWaterGisPopup(coord, buildPipeInfoHtml(picked));
-      else hideWaterGisPopup();
+      else hideWaterGisPopup(true);
     }
   });
 }
@@ -4467,8 +4548,7 @@ async function initGoogleMeasureMap(points, emptyEl){
     measureMap=new google.maps.Map(googleMapDiv,{center:points.length?{lat:+points[0].lat,lng:+points[0].lng}:{lat:23.6978,lng:120.9605},zoom:points.length?16:7,mapTypeControl:false,streetViewControl:false,fullscreenControl:true});
     measureMapInfo=new google.maps.InfoWindow();
     measureMapInfo.addListener('closeclick',()=>{
-      activeGoogleInfoRecordId='';
-      activeGoogleInfoMarker=null;
+      closeGoogleRecordInfo(true);
     });
   }
   clearGoogleMarkers();
@@ -4485,8 +4565,8 @@ async function initGoogleMeasureMap(points, emptyEl){
       icon:{path:google.maps.SymbolPath.CIRCLE,scale:8,fillColor:markerColor,fillOpacity:1,strokeColor:'#ffffff',strokeWeight:2}
     });
     marker.__recordId=String(r.id||'');
-    const html=buildMapInfoHtml(r);
-    marker.addListener('click',()=>openGoogleRecordInfoAtScale(marker, html));
+    marker.__record=r;
+    marker.addListener('click',()=>openGoogleRecordInfoAtScale(marker, buildMapInfoHtml(marker.__record||r)));
     measureMapMarkers.push(marker);
     measureMapMarkerMap.set(String(r.id),marker);
   });
@@ -4516,11 +4596,18 @@ async function initGoogleMeasureMap(points, emptyEl){
   setTimeout(()=>{ if(window.google&&measureMap) google.maps.event.trigger(measureMap,'resize'); },100);
 }
 function toggleMapBaseMode(){
+  const popupRecordId=getActiveMapRecordPopupId();
   pendingSharedMapViewState=captureCurrentMapViewState();
   currentMapBaseMode=currentMapBaseMode==='watergis'?'google':'watergis';
   refreshMapBaseToggleButton();
   if(document.getElementById('page-list')?.classList.contains('active')&&homeTab==='map'){
-    initMeasureMap().then(()=>toast(currentMapBaseMode==='watergis'?'已切換為管線圖資':'已切換為 Google 地圖'));
+    initMeasureMap().then(()=>{
+      if(popupRecordId){
+        setActiveMapRecordPopupId(popupRecordId);
+        setTimeout(()=>restoreActiveMapRecordPopupAfterBaseSwitch(popupRecordId), 0);
+      }
+      toast(currentMapBaseMode==='watergis'?'已切換為管線圖資':'已切換為 Google 地圖');
+    });
   }
 }
 async function locateMeOnMap(){

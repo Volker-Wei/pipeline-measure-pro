@@ -2640,6 +2640,35 @@ function captureCurrentMapViewState(){
   }catch(e){}
   return null;
 }
+function captureRecordPopupAnchorViewState(recordId){
+  const key=String(recordId||getActiveMapRecordPopupId()||'').trim();
+  if(!key) return null;
+  try{
+    if(currentMapBaseMode==='google' && measureMap){
+      const marker=measureMapMarkerMap.get(key) || activeGoogleInfoMarker;
+      const pos=marker && marker.getPosition ? marker.getPosition() : null;
+      if(pos){
+        const lat=typeof pos.lat==='function' ? pos.lat() : pos.lat;
+        const lng=typeof pos.lng==='function' ? pos.lng() : pos.lng;
+        if(isValidGps(lat,lng)){
+          return {center:{lat:+lat,lng:+lng},zoom:measureMap.getZoom(),source:'google',anchorRecordId:key};
+        }
+      }
+    }
+    if(currentMapBaseMode==='watergis' && waterOlMap && waterOlMarkerFeatureMap){
+      const feature=waterOlMarkerFeatureMap.get(key);
+      const geom=feature && feature.getGeometry ? feature.getGeometry() : null;
+      const coord=geom instanceof ol.geom.Point ? geom.getCoordinates() : null;
+      if(coord){
+        const lonlat=ol.proj.toLonLat(coord);
+        if(isValidGps(lonlat[1],lonlat[0])){
+          return {center:{lat:lonlat[1],lng:lonlat[0]},zoom:waterOlMap.getView().getZoom(),source:'watergis',anchorRecordId:key};
+        }
+      }
+    }
+  }catch(e){}
+  return null;
+}
 function applySharedViewToGoogleMap(state){
   if(!state || !state.center || !measureMap) return false;
   try{
@@ -3575,7 +3604,9 @@ function ensureWaterGisPopupOverlay(){
   const closer=document.getElementById('watergis-popup-closer');
   if(!container) return null;
   if(!waterOlPopupOverlay){
-    waterOlPopupOverlay=new ol.Overlay({element:container,autoPan:{animation:{duration:220}}});
+    // 不啟用 OpenLayers overlay autoPan；否則首次尚未建立 GML/IndexedDB 快取時，
+    // 從 Google 資訊泡泡切到管線圖資，popup 可能在地圖尚未穩定前自動推動 view，造成座標亂跳。
+    waterOlPopupOverlay=new ol.Overlay({element:container,autoPan:false});
     waterOlMap.addOverlay(waterOlPopupOverlay);
   }
   if(closer && !closer.__binded){
@@ -4597,7 +4628,11 @@ async function initGoogleMeasureMap(points, emptyEl){
 }
 function toggleMapBaseMode(){
   const popupRecordId=getActiveMapRecordPopupId();
-  pendingSharedMapViewState=captureCurrentMapViewState();
+  // 若目前有案件資訊泡泡，切換底圖時以「案件點位」當作共享中心，
+  // 不用 Google InfoWindow / OpenLayers popup 自動平移後的畫面中心，避免首次無快取載入管線圖資時座標亂跳。
+  pendingSharedMapViewState=popupRecordId
+    ? (captureRecordPopupAnchorViewState(popupRecordId) || captureCurrentMapViewState())
+    : captureCurrentMapViewState();
   currentMapBaseMode=currentMapBaseMode==='watergis'?'google':'watergis';
   refreshMapBaseToggleButton();
   if(document.getElementById('page-list')?.classList.contains('active')&&homeTab==='map'){

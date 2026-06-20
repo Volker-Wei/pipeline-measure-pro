@@ -2299,6 +2299,115 @@ function refreshActiveGoogleInfoAfterOverlaySave(rec){
   activeGoogleInfoMarker=marker;
   activeGoogleInfoRecordId=id;
 }
+
+function refreshMapSummaryAfterOverlaySave(){
+  const summaryEl=document.getElementById('map-summary');
+  if(!summaryEl || homeTab!=='map') return;
+  getAllLocal().then(all=>{
+    all=(all||[]).filter(r=>!r.deleted);
+    const kw=getHomeSearchValue();
+    const pendingMeasure=all.filter(r=>r.status==='pending');
+    const pendingSync=all.filter(r=>r.status!=='pending' && needsAnySync(r));
+    const visibleRecords=all.filter(r=>r.status==='pending' || needsAnySync(r));
+    const filteredRecords=kw?visibleRecords.filter(r=>recordMatchesKeyword(r,kw)):visibleRecords;
+    const points=filteredRecords.filter(r=>isValidGps(r.lat,r.lng));
+    const gmlNote=currentMapBaseMode==='watergis' ? `、GML管線 ${waterOlPipeFeatureCount||'載入中'} 筆` : '';
+    summaryEl.textContent=`待丈量 ${pendingMeasure.length} 筆、待同步 ${pendingSync.length} 筆；已定位 ${points.length} 筆${gmlNote}`;
+  }).catch(()=>{});
+}
+
+function refreshMapMarkerAfterOverlaySave(rec){
+  if(!rec) return;
+  const id=String(rec.id||'');
+  if(!id) return;
+
+  refreshMapSummaryAfterOverlaySave();
+
+  const kw=getHomeSearchValue();
+  const shouldShow=shouldAppearOnMeasureMap(rec) && recordMatchesKeyword(rec,kw);
+
+  // Google 地圖：只更新現有 marker，不重新 initMeasureMap，因此不會改中心點或比例尺。
+  if(currentMapBaseMode==='google'){
+    if(!window.google || !measureMap) return;
+    let marker=measureMapMarkerMap.get(id);
+
+    if(!shouldShow){
+      if(marker){
+        marker.setMap(null);
+        measureMapMarkerMap.delete(id);
+        measureMapMarkers=measureMapMarkers.filter(m=>m!==marker);
+      }
+      if(activeGoogleInfoRecordId===id && measureMapInfo){
+        measureMapInfo.close();
+        activeGoogleInfoRecordId='';
+        activeGoogleInfoMarker=null;
+      }
+      return;
+    }
+
+    const pos={lat:+rec.lat,lng:+rec.lng};
+    const markerColor=needsAnySync(rec)?'#9aa0a6':'#ea4335';
+    const icon={
+      path:google.maps.SymbolPath.CIRCLE,
+      scale:8,
+      fillColor:markerColor,
+      fillOpacity:1,
+      strokeColor:'#ffffff',
+      strokeWeight:2
+    };
+    const title=`${rec.projectName||''} ${rec.trenchNo||''}`.trim();
+    const html=buildMapInfoHtml(rec);
+
+    if(!marker){
+      marker=new google.maps.Marker({map:measureMap,position:pos,title,icon});
+      measureMapMarkers.push(marker);
+      measureMapMarkerMap.set(id,marker);
+    }else{
+      marker.setPosition(pos);
+      marker.setTitle(title);
+      marker.setIcon(icon);
+    }
+
+    marker.__recordId=id;
+    google.maps.event.clearListeners(marker,'click');
+    marker.addListener('click',()=>openGoogleRecordInfoAtScale(marker, html));
+    return;
+  }
+
+  // 管線圖資：更新 OpenLayers feature 的 record，讓 getRecordMarkerStyle 立即重新計算顏色。
+  if(currentMapBaseMode==='watergis'){
+    if(!window.ol || !waterOlMarkerSource) return;
+    let feature=waterOlMarkerFeatureMap.get(id);
+
+    if(!shouldShow){
+      if(feature){
+        waterOlMarkerSource.removeFeature(feature);
+        waterOlMarkerFeatureMap.delete(id);
+        if(waterOlMarkerSource.changed) waterOlMarkerSource.changed();
+      }
+      return;
+    }
+
+    const coord=ol.proj.fromLonLat([+rec.lng,+rec.lat]);
+    if(!feature){
+      feature=new ol.Feature({
+        geometry:new ol.geom.Point(coord),
+        layerType:'record',
+        record:rec,
+        recordId:id
+      });
+      waterOlMarkerFeatureMap.set(id,feature);
+      waterOlMarkerSource.addFeature(feature);
+    }else{
+      feature.setGeometry(new ol.geom.Point(coord));
+      feature.set('record',rec);
+      feature.set('recordId',id);
+      feature.set('layerType','record');
+      feature.changed();
+    }
+    if(waterOlMarkerSource.changed) waterOlMarkerSource.changed();
+  }
+}
 function getWaterGisResolutionForScale(coord, scale=RECORD_MARKER_TARGET_SCALE){
   const groundResolution=getTargetGroundResolutionForScale(scale);
   let cosLat=1;
@@ -4565,7 +4674,9 @@ async function saveRecord(){
 
     if(isAddOverlayOpenFromMap()){
       // 從丈量地圖覆蓋層儲存：只關閉填寫頁，不重新初始化地圖、不自動 fit。
+      // 另外直接刷新目前地圖上的案件標記，避免資料已儲存但紅標要等切換畫面才變灰標。
       closeAddMapOverlay();
+      refreshMapMarkerAfterOverlaySave(rec);
       refreshActiveGoogleInfoAfterOverlaySave(rec);
     }else{
       await renderList();

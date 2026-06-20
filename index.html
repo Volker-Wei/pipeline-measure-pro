@@ -4364,26 +4364,35 @@ function refreshWaterGisMarkers(points){
 function fitWaterGisView(points){
   if(!waterOlMap) return;
   const view=waterOlMap.getView();
-  const extent=ol.extent.createEmpty();
-  let hasExtent=false;
-  if(waterOlPipeSource && waterOlPipeSource.getFeatures().length){
-    const pipeExtent=waterOlPipeSource.getExtent();
-    if(pipeExtent && !ol.extent.isEmpty(pipeExtent)){
-      ol.extent.extend(extent, pipeExtent);
-      hasExtent=true;
+  if(!view) return;
+
+  // 重要：丈量地圖切回「管線圖資」時，縮放範圍只以案件點位為依據。
+  // 不再把 PIPE / VALVE / HYDRANT 等 GML 圖資一起納入 extent，避免管線範圍太大造成案件紅標/灰標被縮得太小。
+  if(points&&points.length){
+    const validPoints=points.filter(r=>isValidGps(r.lat,r.lng));
+    if(validPoints.length===1){
+      const coord=ol.proj.fromLonLat([+validPoints[0].lng,+validPoints[0].lat]);
+      try{ waterOlMap.updateSize(); }catch(e){}
+      try{ view.setCenter(coord); }catch(e){}
+      try{ view.setZoom(17); }catch(e){}
+      lockWaterGisNorthUp();
+      return;
+    }
+    if(validPoints.length>1){
+      const extent=ol.extent.createEmpty();
+      validPoints.forEach(r=>{
+        ol.extent.extend(extent,ol.extent.boundingExtent([ol.proj.fromLonLat([+r.lng,+r.lat])]));
+      });
+      if(!ol.extent.isEmpty(extent)){
+        try{ waterOlMap.updateSize(); }catch(e){}
+        view.fit(extent,{padding:[55,55,55,55],maxZoom:19,duration:220});
+        lockWaterGisNorthUp();
+        return;
+      }
     }
   }
-  if(points&&points.length){
-    points.forEach(r=>{
-      ol.extent.extend(extent,ol.extent.boundingExtent([ol.proj.fromLonLat([+r.lng,+r.lat])]));
-      hasExtent=true;
-    });
-  }
-  if(hasExtent){
-    view.fit(extent,{padding:[55,55,55,55],maxZoom:(points&&points.length===1 && !waterOlPipeFeatureCount)?18:19,duration:220});
-    lockWaterGisNorthUp();
-    return;
-  }
+
+  // 沒有案件點位時，不拿 GML 圖資範圍自動 fit，維持預設台灣視野。
   view.setCenter(ol.proj.fromLonLat([120.9605,23.6978]));
   view.setZoom(8);
   lockWaterGisNorthUp();

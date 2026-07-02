@@ -4801,7 +4801,6 @@ async function saveRecord(){
 
     saveMeasureCacheFromRecord(rec);
     refreshMeasureCacheButton();
-    console.log("saveRecord rec =", JSON.stringify(rec, null, 2));
     await putRecLocal(rec);
 
     if(isAddOverlayOpenFromMap()){

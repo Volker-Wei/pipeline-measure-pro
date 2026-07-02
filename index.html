@@ -5085,7 +5085,8 @@ function parseLatLngText(text){
   if(isFinite(a)&&isFinite(b)&&Math.abs(a)<=90&&Math.abs(b)<=180) return {lat:a,lng:b};
   return null;
 }
-function (rec){
+function toRemoteRecord(rec){
+  console.log("toRemoteRecord:", rec.roadWidthLenM, typeof rec.roadWidthLenM);
   return {
     id:rec.id,
     projectName:rec.projectName,

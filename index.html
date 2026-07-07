@@ -2584,7 +2584,7 @@ async function openMeasureForm(encodedId){
     activeGoogleInfoMarker=null;
   }
 
-  if(r.status==='pending') openAdd(r); else await editRecord();
+  if(!r.measuredAt) openAdd(r);else await editRecord();
 }
 
 function refreshMapBaseToggleButton(){

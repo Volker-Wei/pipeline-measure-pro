@@ -410,12 +410,16 @@ body.add-overlay-open{
   display:flex;
   align-items:center;
   justify-content:center;
-  padding:10px 18px;
-  border:2px solid var(--border);
-  border-radius:10px;
+  gap:6px;
+  margin:0;
+  padding:14px 24px;          /* 按鈕更高、更好按 */
+  border:3px solid var(--border); /* 邊框加粗 */
+  border-radius:12px;
   background:var(--surface2);
-  cursor:pointer;
+  color:var(--text);
+  font-size:16px;             /* 字體放大 */
   font-weight:700;
+  cursor:pointer;
   user-select:none;
   transition:.2s;
 }
@@ -565,7 +569,7 @@ body.add-overlay-open{
 
     <div class="gcard" style="display:flex;align-items:center;justify-content:space-between">
 
-      <div style="width:60%;display:flex;align-items:center;gap:24px">
+      <div style="width:60%;display:flex;align-items:center;gap:16px">
 
         <label for="measure-done" class="measure-status-btn">
           <input type="radio" name="measure-status" id="measure-done" value="done" checked>

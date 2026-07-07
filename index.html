@@ -407,16 +407,27 @@ body.add-overlay-open{
   height:100%!important;
 }
 .measure-status-btn{
+  flex:1;                     /* 兩個按鈕平均分配寬度 */
+
   display:flex;
   align-items:center;
   justify-content:center;
-  padding:8px 20px;
+
+  height:48px;                /* 固定高度 */
+  padding:0;                  /* 高度由 height 控制 */
+
   border:2px solid var(--border);
   border-radius:10px;
+
   background:var(--surface2);
-  cursor:pointer;
-  font-size:14px;
+  color:var(--text);
+
+  font-size:clamp(12px,3.5vw,16px);   /* 字體依螢幕大小縮放 */
   font-weight:700;
+
+  white-space:nowrap;          /* 不換行 */
+
+  cursor:pointer;
   user-select:none;
   transition:.2s;
 }
@@ -566,7 +577,7 @@ body.add-overlay-open{
 
     <div class="gcard" style="display:flex;align-items:center;justify-content:space-between">
 
-      <div style="width:60%;display:flex;align-items:center;gap:12px">
+      <div style="width:60%;display:flex;align-items:center;gap:10px">
 
         <label for="measure-done" class="measure-status-btn">
           <input type="radio" name="measure-status" id="measure-done" value="done" checked>
@@ -581,7 +592,7 @@ body.add-overlay-open{
       </div>
 
       <div style="width:40%;font-size:12px;color:var(--accent);line-height:1.5;text-align:left">
-        ⚠️同步前確認「測量完成」<br>以免測量資料遺失。
+        ⚠️同步前確認「測量完成」，以免測量資料遺失。
       </div>
 
     </div>

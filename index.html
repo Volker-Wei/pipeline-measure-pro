@@ -4769,13 +4769,10 @@ function openAdd(prefill=null){
     document.getElementById('f-plen').value=measureFieldPrefillValue(r.paveLenM, r.status);
     document.getElementById('f-pwid').value=measureFieldPrefillValue(r.paveWidM, r.status);
     document.getElementById('f-note').value=r.note||'';
-    if(r.id){
-      document.getElementById('measure-done').checked=(r.measureStatus||r.status)!=='pending';
-      document.getElementById('measure-pending').checked=(r.measureStatus||r.status)==='pending';
-    }else{
-      document.getElementById('measure-done').checked=true;
-      document.getElementById('measure-pending').checked=false;
-    }
+    // 一律預設測量完成
+    document.getElementById('measure-done').checked = true;
+    document.getElementById('measure-pending').checked = false;
+    
     applyGps(r.lat,r.lng);
     document.getElementById('f-eid').value=r.id||'';
     editPhotos=normalizePhotos(r.photos).map(p=>({...p}));

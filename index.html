@@ -4770,10 +4770,16 @@ function openAdd(prefill=null){
     document.getElementById('f-plen').value=measureFieldPrefillValue(r.paveLenM, r.status);
     document.getElementById('f-pwid').value=measureFieldPrefillValue(r.paveWidM, r.status);
     document.getElementById('f-note').value=r.note||'';
-    if(r.id && r.measureStatus){
-        document.getElementById('measure-done').checked = r.measureStatus !== 'pending';
+    if (r.id && r.measureStatus) {
 
-    document.getElementById('measure-pending').checked = r.measureStatus === 'pending';
+        console.log("r.measureStatus =", r.measureStatus);
+        console.log("r.status =", r.status);
+
+        document.getElementById('measure-done').checked =
+            r.measureStatus !== 'pending';
+
+        document.getElementById('measure-pending').checked =
+            r.measureStatus === 'pending';
     }
     
     applyGps(r.lat,r.lng);
@@ -4787,14 +4793,6 @@ function openAdd(prefill=null){
   }else{
       gotoPage('page-add');
   }
-
-  setTimeout(() => {
-      console.log(
-          "1秒後：",
-          document.getElementById('measure-done').checked,
-          document.getElementById('measure-pending').checked
-      );
-  }, 1000);
 }
 async function editRecord(){
   const r=await getRecLocal(curDetailId); if(!r) return;

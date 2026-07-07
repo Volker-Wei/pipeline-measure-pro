@@ -4762,8 +4762,8 @@ function openAdd(prefill=null){
     document.getElementById('f-plen').value=measureFieldPrefillValue(r.paveLenM, r.status);
     document.getElementById('f-pwid').value=measureFieldPrefillValue(r.paveWidM, r.status);
     document.getElementById('f-note').value=r.note||'';
-    document.getElementById('measure-done').checked=rec.measureStatus!=='pending';
-    document.getElementById('measure-pending').checked=rec.measureStatus==='pending';
+    document.getElementById('measure-done').checked=(r.measureStatus||r.status)!=='pending';
+    document.getElementById('measure-pending').checked=(r.measureStatus||r.status)==='pending';
     applyGps(r.lat,r.lng);
     document.getElementById('f-eid').value=r.id||'';
     editPhotos=normalizePhotos(r.photos).map(p=>({...p}));

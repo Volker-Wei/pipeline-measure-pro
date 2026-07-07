@@ -539,20 +539,25 @@ body.add-overlay-open{
     </div>
 
     <div class="slbl">✅ 測量狀態</div>
-    <div class="gcard">
-      <label style="display:block;margin-bottom:8px">
-        <input type="radio" name="measure-status" id="measure-done" value="done" checked>
-        ⭕測量完成
-      </label>
 
-      <label style="display:block">
-        <input type="radio" name="measure-status" id="measure-pending" value="pending">
-        ❌測量未完成
-      </label>
+    <div class="gcard" style="display:flex;align-items:flex-start;justify-content:space-between">
 
-      <div style="margin-top:8px;font-size:12px;color:var(--text2)">
-        ※ 選擇「測量未完成」時，只會儲存在本機，不會同步到後端。
+      <div style="width:60%">
+        <label style="display:block;margin-bottom:8px">
+          <input type="radio" name="measure-status" id="measure-done" value="done" checked>
+          ⭕完成
+        </label>
+
+        <label style="display:block">
+          <input type="radio" name="measure-status" id="measure-pending" value="pending">
+          ❌未完成
+        </label>
       </div>
+
+      <div style="width:40%;font-size:12px;color:var(--text2);line-height:1.5">
+        同步前確認「測量完成」，<br>以免測量資料遺失。
+      </div>
+
     </div>
 
     <input type="hidden" id="f-eid">

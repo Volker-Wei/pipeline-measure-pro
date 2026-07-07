@@ -4741,7 +4741,7 @@ async function initMeasureMap(){
   await initGoogleMeasureMap(points, emptyEl);
 }
 
-alert("openAdd()");
+  
 function openAdd(prefill=null){
   rememberListScroll();
   if(!prefill){ toast('此版本請先從受理名冊同步案件'); return; }
@@ -4754,10 +4754,7 @@ function openAdd(prefill=null){
   document.getElementById('gps-display').textContent='尚未取得';
   document.getElementById('measure-done').checked=true;
   document.getElementById('measure-pending').checked=false;
-  alert(
-      document.getElementById('measure-done').checked + "," +
-      document.getElementById('measure-pending').checked
-  );
+
   editPhotos=[];
   if(prefill){
     const r=normalizeLocalRecord(prefill);
@@ -4786,10 +4783,18 @@ function openAdd(prefill=null){
   }
   renderPhotoGrid();
   if(addOpenedOverMap && homeTab==='map'){
-    openAddAsMapOverlay();
+      openAddAsMapOverlay();
   }else{
-    gotoPage('page-add');
+      gotoPage('page-add');
   }
+
+  setTimeout(() => {
+      console.log(
+          "1秒後：",
+          document.getElementById('measure-done').checked,
+          document.getElementById('measure-pending').checked
+      );
+  }, 1000);
 }
 async function editRecord(){
   const r=await getRecLocal(curDetailId); if(!r) return;

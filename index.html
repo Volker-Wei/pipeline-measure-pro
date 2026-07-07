@@ -2584,7 +2584,7 @@ async function openMeasureForm(encodedId){
     activeGoogleInfoMarker=null;
   }
 
-  if(!r.measuredAt) openAdd(r);else await editRecord();
+  if(r.status==='pending') openAdd(r); else await editRecord();
 }
 
 function refreshMapBaseToggleButton(){
@@ -4769,9 +4769,9 @@ function openAdd(prefill=null){
     document.getElementById('f-plen').value=measureFieldPrefillValue(r.paveLenM, r.status);
     document.getElementById('f-pwid').value=measureFieldPrefillValue(r.paveWidM, r.status);
     document.getElementById('f-note').value=r.note||'';
-    if(r.id && r.measureStatus){
-      document.getElementById('measure-done').checked=r.measureStatus!=='pending';
-      document.getElementById('measure-pending').checked=r.measureStatus==='pending';
+    if(r.id){
+      document.getElementById('measure-done').checked=(r.measureStatus||r.status)!=='pending';
+      document.getElementById('measure-pending').checked=(r.measureStatus||r.status)==='pending';
     }else{
       document.getElementById('measure-done').checked=true;
       document.getElementById('measure-pending').checked=false;
@@ -5067,7 +5067,7 @@ function normalizeLocalRecord(input, extras={}){
     driveRecordFolderId:String(input.driveRecordFolderId||'').trim(),
     driveRecordFolderName:String(input.driveRecordFolderName||'').trim(),
     measureStatus:String(input.measureStatus||(input.status||(input.measuredAt?'done':'pending'))).trim()||'done',
-    status:String(input.measureStatus||(input.status||(input.measuredAt?'done':'pending'))).trim()||'pending',
+    status:String(input.status||(input.measuredAt?'done':'pending')).trim()||'pending',
     deleted:toBoolean(input.deleted),
     sourceSheet:String(input.sourceSheet||'受理名冊').trim(),
     sourceRow:input.sourceRow==null||input.sourceRow===''?'':Number(input.sourceRow),

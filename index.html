@@ -406,7 +406,30 @@ body.add-overlay-open{
   overflow:hidden!important;
   height:100%!important;
 }
+.measure-status-btn{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:10px 18px;
+  border:2px solid var(--border);
+  border-radius:10px;
+  background:var(--surface2);
+  cursor:pointer;
+  font-weight:700;
+  user-select:none;
+  transition:.2s;
+}
 
+.measure-status-btn input{
+  display:none;
+}
+
+.measure-status-btn:has(input:checked){
+  background:var(--accent);
+  border-color:var(--accent);
+  color:#000;
+}
+  
 </style>
 </head>
 <body>

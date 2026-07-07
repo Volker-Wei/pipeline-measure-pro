@@ -537,6 +537,24 @@ body.add-overlay-open{
     <div class="fld">
       <textarea id="f-note" placeholder="施工情形、特殊狀況、設計值對照…"></textarea>
     </div>
+
+    <div class="slbl">✅ 測量狀態</div>
+    <div class="gcard">
+      <label style="display:block;margin-bottom:8px">
+        <input type="radio" name="measure-status" id="measure-done" value="done" checked>
+        ⭕測量完成
+      </label>
+
+      <label style="display:block">
+        <input type="radio" name="measure-status" id="measure-pending" value="pending">
+        ❌測量未完成
+      </label>
+
+      <div style="margin-top:8px;font-size:12px;color:var(--text2)">
+        ※ 選擇「測量未完成」時，只會儲存在本機，不會同步到後端。
+      </div>
+    </div>
+
     <input type="hidden" id="f-eid">
   </div>
   <div class="sbar">
@@ -4727,6 +4745,8 @@ function openAdd(prefill=null){
   ['f-project','f-trench','f-addr','f-lotlen','f-ditchwid','f-stripe','f-len','f-road','f-plen','f-pwid','f-note','f-lat','f-lng'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('f-date').value=new Date().toISOString().slice(0,10);
   document.getElementById('gps-display').textContent='尚未取得';
+  document.getElementById('measure-done').checked=true;
+  document.getElementById('measure-pending').checked=false;
   editPhotos=[];
   if(prefill){
     const r=normalizeLocalRecord(prefill);
@@ -4742,6 +4762,8 @@ function openAdd(prefill=null){
     document.getElementById('f-plen').value=measureFieldPrefillValue(r.paveLenM, r.status);
     document.getElementById('f-pwid').value=measureFieldPrefillValue(r.paveWidM, r.status);
     document.getElementById('f-note').value=r.note||'';
+    document.getElementById('measure-done').checked=rec.measureStatus!=='pending';
+    document.getElementById('measure-pending').checked=rec.measureStatus==='pending';
     applyGps(r.lat,r.lng);
     document.getElementById('f-eid').value=r.id||'';
     editPhotos=normalizePhotos(r.photos).map(p=>({...p}));
@@ -4769,6 +4791,7 @@ async function saveRecord(){
     const eid=document.getElementById('f-eid').value.trim();
     const old=eid?await getRecLocal(eid):null;
     const now=new Date().toISOString();
+    const measureStatus=document.getElementById('measure-pending').checked?'pending':'done';
     const lat=document.getElementById('f-lat').value?+document.getElementById('f-lat').value:null;
     const lng=document.getElementById('f-lng').value?+document.getElementById('f-lng').value:null;
     let rec=normalizeLocalRecord({
@@ -4789,14 +4812,15 @@ async function saveRecord(){
       lat,lng,
       note:document.getElementById('f-note').value.trim(),
       photos:normalizePhotos(editPhotos),
-      status:(document.getElementById('f-date').value||new Date().toISOString().slice(0,10))?'done':'pending',
+      measureStatus:measureStatus,
+      status:measureStatus,
       createdAt:old?.createdAt||now,
       updatedAt:now,
       deleted:false,
       deletedAt:'',
-      dataSyncStatus:'pending',
-      photoSyncStatus:normalizePhotos(editPhotos).length?'pending':'none',
-      syncAction:'upsert',
+      dataSyncStatus:measureStatus==='done'?'pending':'synced',
+      photoSyncStatus:measureStatus==='done'?(normalizePhotos(editPhotos).length?'pending':'none'):'none',
+      syncAction:measureStatus==='done'?'upsert':'',
     });
 
     saveMeasureCacheFromRecord(rec);

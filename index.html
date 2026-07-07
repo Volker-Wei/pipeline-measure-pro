@@ -4770,11 +4770,8 @@ function openAdd(prefill=null){
     document.getElementById('f-plen').value=measureFieldPrefillValue(r.paveLenM, r.status);
     document.getElementById('f-pwid').value=measureFieldPrefillValue(r.paveWidM, r.status);
     document.getElementById('f-note').value=r.note||'';
-    if (r.id && r.measureStatus) {
-
-        console.log("r.measureStatus =", r.measureStatus);
-        console.log("r.status =", r.status);
-
+    
+    if (r.id && ('measureStatus' in prefill)) {
         document.getElementById('measure-done').checked =
             r.measureStatus !== 'pending';
 
@@ -5072,7 +5069,7 @@ function normalizeLocalRecord(input, extras={}){
     photos:photos,
     driveRecordFolderId:String(input.driveRecordFolderId||'').trim(),
     driveRecordFolderName:String(input.driveRecordFolderName||'').trim(),
-    measureStatus:String(input.measureStatus||(input.status||(input.measuredAt?'done':'pending'))).trim()||'done',
+    measureStatus:input.measureStatus == null? '': String(input.measureStatus).trim(),
     status:String(input.status||(input.measuredAt?'done':'pending')).trim()||'pending',
     deleted:toBoolean(input.deleted),
     sourceSheet:String(input.sourceSheet||'受理名冊').trim(),

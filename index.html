@@ -538,24 +538,26 @@ body.add-overlay-open{
       <textarea id="f-note" placeholder="施工情形、特殊狀況、設計值對照…"></textarea>
     </div>
 
-    <div class="slbl">✅ 測量狀態</div>
+    <div class="slbl">📜 測量狀態</div>
 
-    <div class="gcard" style="display:flex;align-items:flex-start;justify-content:space-between">
+    <div class="gcard" style="display:flex;align-items:center;justify-content:space-between">
 
-      <div style="width:60%">
-        <label style="display:block;margin-bottom:8px">
+      <div style="width:60%;display:flex;align-items:center;gap:24px">
+
+        <label style="display:flex;align-items:center;gap:4px;margin:0">
           <input type="radio" name="measure-status" id="measure-done" value="done" checked>
           ⭕完成
         </label>
 
-        <label style="display:block">
+        <label style="display:flex;align-items:center;gap:4px;margin:0">
           <input type="radio" name="measure-status" id="measure-pending" value="pending">
           ❌未完成
         </label>
+
       </div>
 
-      <div style="width:40%;font-size:12px;color:var(--text2);line-height:1.5">
-        同步前確認「測量完成」，<br>以免測量資料遺失。
+      <div style="width:40%;font-size:12px;color:var(--accent);line-height:1.5;text-align:left">
+        ⚠️同步前確認「測量完成」<br>以免測量資料遺失。
       </div>
 
     </div>
@@ -4767,8 +4769,13 @@ function openAdd(prefill=null){
     document.getElementById('f-plen').value=measureFieldPrefillValue(r.paveLenM, r.status);
     document.getElementById('f-pwid').value=measureFieldPrefillValue(r.paveWidM, r.status);
     document.getElementById('f-note').value=r.note||'';
-    document.getElementById('measure-done').checked=(r.measureStatus||r.status)!=='pending';
-    document.getElementById('measure-pending').checked=(r.measureStatus||r.status)==='pending';
+    if(r.id){
+      document.getElementById('measure-done').checked=(r.measureStatus||r.status)!=='pending';
+      document.getElementById('measure-pending').checked=(r.measureStatus||r.status)==='pending';
+    }else{
+      document.getElementById('measure-done').checked=true;
+      document.getElementById('measure-pending').checked=false;
+    }
     applyGps(r.lat,r.lng);
     document.getElementById('f-eid').value=r.id||'';
     editPhotos=normalizePhotos(r.photos).map(p=>({...p}));
@@ -5059,6 +5066,7 @@ function normalizeLocalRecord(input, extras={}){
     photos:photos,
     driveRecordFolderId:String(input.driveRecordFolderId||'').trim(),
     driveRecordFolderName:String(input.driveRecordFolderName||'').trim(),
+    measureStatus:String(input.measureStatus||(input.status||(input.measuredAt?'done':'pending'))).trim()||'done',
     status:String(input.status||(input.measuredAt?'done':'pending')).trim()||'pending',
     deleted:toBoolean(input.deleted),
     sourceSheet:String(input.sourceSheet||'受理名冊').trim(),
